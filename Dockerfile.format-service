@@ -1,0 +1,30 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY requirements_format.txt .
+RUN pip install --no-cache-dir -r requirements_format.txt
+
+# Copy application code
+COPY format_service.py .
+
+# Expose port
+EXPOSE 8004
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:8004/health || exit 1
+
+# Environment variables
+ENV FORMAT_SERVICE_PORT=8004
+ENV API_KEY=supersecret123
+ENV LOG_LEVEL=INFO
+
+# Run the application
+CMD ["python", "format_service.py"]

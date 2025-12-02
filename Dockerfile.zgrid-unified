@@ -1,0 +1,25 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install Python dependencies
+COPY requirements_unified.txt .
+RUN pip install --no-cache-dir -r requirements_unified.txt
+
+# Copy application code
+COPY app.py .
+
+# Expose port
+EXPOSE 8010
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:8010/health || exit 1
+
+# Environment variables
+ENV GATEWAY_URL=http://134.33.132.66:8008
+ENV ZGRID_API_KEY=supersecret123
+ENV LOG_LEVEL=INFO
+
+# Run the application
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8010"]
