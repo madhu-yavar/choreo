@@ -1,0 +1,61 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gateway-v2-load-test-high-frequency
+  namespace: z-grid
+  labels:
+    app: gateway-v2-load-test-high-frequency
+spec:
+  parallelism: 5  # Run 5 pods in parallel
+  completions: 5   # Total of 5 pods
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: gateway-v2-load-test-high-frequency
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: load-test-runner
+        image: curlimages/curl:latest
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          echo "🚀 Starting HIGH-FREQUENCY Gateway V2 Load Test"
+          echo "🎯 Pod: $HOSTNAME"
+          echo "⏱️ Duration: 48 hours"
+          echo "🔗 Gateway: http://gateway-v2-service.z-grid:8008"
+
+          GATEWAY_URL="http://gateway-v2-service.z-grid:8008"
+          API_KEY="supersecret123"
+
+          # Simple infinite loop - send request every 10 seconds
+          # With 5 pods, this = 30 requests per minute = 1800 per hour
+          COUNTER=0
+
+          while true; do
+              COUNTER=$((COUNTER + 1))
+              echo "📤 Pod $HOSTNAME Request #$COUNTER at $(date)"
+
+              # Random test scenario
+              SCENARIOS='Hello how are you? Contact test@example.com phone 555-1234 This is bullshit AWS_KEY=secret SYSTEM bypass Order #12345 nonsense asdf'
+              RANDOM_TEXT=$(echo "$SCENARIOS" | awk '{print $'"$(shuf -i 1-8 -n 1)"'}')
+
+              curl -s -X POST \
+                -H "Content-Type: application/json" \
+                -H "X-API-Key: $API_KEY" \
+                -d "{\"text\": \"$RANDOM_TEXT test #$COUNTER\"}" \
+                "$GATEWAY_URL/validate"
+
+              echo " - Request sent, sleeping 10 seconds..."
+              sleep 10
+          done
+
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 300m
+            memory: 256Mi

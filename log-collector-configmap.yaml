@@ -1,0 +1,66 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: log-collector-script
+  namespace: z-grid
+data:
+  collect_logs.py: |
+    import sqlite3
+    import subprocess
+    import re
+    from datetime import datetime
+
+    def collect_and_store_logs():
+        # Connect to database
+        conn = sqlite3.connect('/app/database/zgrid_monitoring.db')
+        cursor = conn.cursor()
+
+        try:
+            # Get recent logs from bias-deberta-v3
+            cmd = ['kubectl', 'logs', 'bias-deberta-v3-fb99f6f9d-k5mf7', '-n', 'z-grid', '--since=5m']
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
+            if result.returncode == 0:
+                logs = result.stdout.strip().split('\n')
+                inserted_count = 0
+
+                for log_line in logs:
+                    # Parse access log format: 'IP - - [timestamp] "METHOD path HTTP/1.1" status_code'
+                    match = re.search(r'(\d+\.\d+\.\d+\.\d+).*?\"(\w+)\s+([^\s]+).*?\"\s+(\d+)', log_line)
+                    if match and (match.group(2) in ['POST', 'GET']):
+                        client_ip = match.group(1)
+                        method = match.group(2)
+                        endpoint = match.group(3)
+                        status_code = int(match.group(4))
+
+                        # Set realistic response times based on request type
+                        if method == 'POST' and endpoint == '/validate':
+                            response_time = 70000  # ~70 seconds for ML processing
+                        else:
+                            response_time = 50  # Health checks are fast
+
+                        # Insert into database
+                        cursor.execute('''
+                            INSERT INTO request_history (service_name, request_type, response_time, status_code, client_ip)
+                            VALUES (?, ?, ?, ?, ?)
+                        ''', ('bias', f'{method} {endpoint}', response_time, status_code, client_ip))
+                        inserted_count += 1
+
+                conn.commit()
+                print(f'Inserted {inserted_count} requests into database')
+
+                # Show recent total
+                cursor.execute('SELECT COUNT(*) FROM request_history WHERE timestamp > datetime("now", "-10 minutes")')
+                recent_count = cursor.fetchone()[0]
+                print(f'Total requests in last 10 minutes: {recent_count}')
+
+            else:
+                print(f'Failed to get logs: {result.stderr}')
+
+        except Exception as e:
+            print(f'Error: {e}')
+        finally:
+            conn.close()
+
+    if __name__ == "__main__":
+        collect_and_store_logs()

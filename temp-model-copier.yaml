@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: temp-model-copier
+  namespace: z-grid
+spec:
+  restartPolicy: Never
+  containers:
+  - name: copier
+    image: busybox
+    command: ["sleep", "3600"]
+    volumeMounts:
+    - name: model-volume
+      mountPath: /model_volume
+  volumes:
+  - name: model-volume
+    persistentVolumeClaim:
+      claimName: gibberish-model-pvc

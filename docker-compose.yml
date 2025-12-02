@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  gibberish-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gibberish-service
+    ports:
+      - "8081:8081"
+    environment:
+      - GIBBERISH_API_KEYS=supersecret123,gibberishvalyavar
+      - GIBBERISH_ADMIN_API_KEYS=gibberishprivileged123,gibberishadminyavar
+      - CORS_ALLOWED_ORIGINS=https://zgrid-feature-flow.lovable.app,http://localhost:5173,http://localhost:3000
+      - GIBBERISH_THRESHOLD=0.8
+      - GIBBERISH_MIN_LENGTH=10
+      - GIBBERISH_ACTION_ON_FAIL=refrain
+      - MODEL_PATH=models/gibberish_model.pkl
+      - RETURN_GIBBERISH_DETAILS=1
+    volumes:
+      - ./models:/app/models:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - zgrid-network
+
+networks:
+  zgrid-network:
+    driver: bridge

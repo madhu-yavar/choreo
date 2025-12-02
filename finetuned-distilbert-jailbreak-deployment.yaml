@@ -1,0 +1,137 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finetuned-distilbert-jailbreak-service
+  namespace: z-grid
+  labels:
+    app: finetuned-distilbert-jailbreak
+    service-type: content-moderation
+    version: v1
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: finetuned-distilbert-jailbreak
+  template:
+    metadata:
+      labels:
+        app: finetuned-distilbert-jailbreak
+        service-type: content-moderation
+        version: v1
+    spec:
+      containers:
+      - name: finetuned-distilbert-jailbreak
+        image: python:3.9-slim
+        imagePullPolicy: Always
+        command: ["/bin/bash"]
+        args: ["-c", "
+          apt-get update && apt-get install -y git curl &&
+          pip install torch transformers scikit-learn fastapi uvicorn pydantic prometheus-client &&
+          cd /app &&
+          git clone https://github.com/microsoft/DistilBERT-base-uncased-finetuned-jailbreak-detection.git models/ ||
+          mkdir -p models &&
+          python jailbreak_service_improved_ml.py
+        "]
+        ports:
+        - containerPort: 8002
+          name: http
+          protocol: TCP
+        env:
+        - name: SERVICE_NAME
+          value: "finetuned-distilbert-jailbreak-service"
+        - name: SERVICE_PORT
+          value: "8002"
+        - name: SERVICE_HOST
+          value: "0.0.0.0"
+        - name: MODEL_NAME
+          value: "distilbert-base-uncased-finetuned-jailbreak-detection"
+        - name: MODEL_PATH
+          value: "/app/models"
+        - name: ML_CONFIDENCE_HIGH
+          value: "0.85"
+        - name: ML_CONFIDENCE_MEDIUM
+          value: "0.70"
+        - name: ML_CONFIDENCE_LOW
+          value: "0.55"
+        - name: RULE_BOOST_FACTOR
+          value: "0.25"
+        - name: DEVICE
+          value: "cpu"
+        - name: MAX_CONTENT_LENGTH
+          value: "8192"
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: ENABLE_METRICS
+          value: "true"
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        volumeMounts:
+        - name: model-volume
+          mountPath: /app/models
+          readOnly: true
+        - name: config-volume
+          mountPath: /app/config
+          readOnly: true
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8002
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 30
+      volumes:
+      - name: model-volume
+        persistentVolumeClaim:
+          claimName: finetuned-distilbert-model-pvc
+      - name: config-volume
+        configMap:
+          name: finetuned-distilbert-jailbreak-config
+      nodeSelector:
+        nodepool: default
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - finetuned-distilbert-jailbreak
+              topologyKey: kubernetes.io/hostname
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: finetuned-distilbert-model-pvc
+  namespace: z-grid
+spec:
+  accessModes:
+    - ReadOnlyMany
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: standard-rwo

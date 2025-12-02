@@ -1,0 +1,353 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zgrid-chatbot-service
+  namespace: zgrid
+  labels:
+    app: zgrid-chatbot-service
+    component: chatbot
+    version: v2-gateway2-simple
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zgrid-chatbot-service
+  template:
+    metadata:
+      labels:
+        app: zgrid-chatbot-service
+        component: chatbot
+        version: v2-gateway2-simple
+    spec:
+      initContainers:
+      - name: copy-app
+        image: python:3.11-slim
+        command: ['sh', '-c', '
+          echo "Setting up chatbot application...";
+          apt-get update && apt-get install -y curl gcc;
+          pip install fastapi==0.104.1 uvicorn[standard]==0.24.0 pydantic==2.4.2 requests==2.31.0 python-multipart==0.0.6 websockets==12.0 redis==5.0.1 aiofiles==23.2.1;
+
+          # Create the app.py file
+          cat > /app/app.py << "EOF"
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+import requests
+import json
+import logging
+from typing import Dict, Any, Optional, List
+import time
+import os
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Initialize FastAPI app
+app = FastAPI(title="Z-Grid Chatbot Service", version="2.0.0")
+
+# Configuration
+GATEWAY_URL_V2 = os.getenv("GATEWAY_URL_V2", "http://134.33.132.66:8008")
+GATEWAY_URL = os.getenv("GATEWAY_URL", "http://134.33.132.66:8008")
+ZGRID_API_KEY = os.getenv("ZGRID_API_KEY", "supersecret123")
+GATEWAY_TIMEOUT = int(os.getenv("GATEWAY_TIMEOUT", "60"))
+
+class ChatRequest(BaseModel):
+    message: str
+    user_name: Optional[str] = "anonymous"
+
+class ServiceStatus(BaseModel):
+    service: str
+    status: str  # "pass", "flagged", "blocked", "error"
+    triggered: bool
+    description: str
+    details: Optional[Dict[str, Any]] = None
+
+class ChatResponse(BaseModel):
+    response: str
+    moderation_status: str
+    service_details: List[ServiceStatus]
+    processing_time_ms: Optional[float] = None  # Gateway 2 field (can be float)
+    gateway_version: Optional[str] = None        # Gateway version information
+
+def create_service_details(response_data: dict) -> List[ServiceStatus]:
+    service_descriptions = {
+        "pii": "PII Detection - Detects personally identifiable information",
+        "policy": "Policy Service - Blocks harmful policy violations",
+        "bias": "Bias Detection - Detects biased or stereotypical content",
+        "toxicity": "Toxicity Detection - Identifies toxic language patterns",
+        "jailbreak": "Jailbreak Detection - Prevents prompt injection attacks",
+        "secrets": "Secrets Detection - Identifies exposed sensitive data",
+        "ban": "Ban Service - Blocks adult/banned content",
+        "format": "Format Checker - Validates response formatting",
+        "gibberish": "Gibberish Detection - Identifies nonsense text"
+    }
+
+    service_info = []
+
+    # Handle Gateway 2 nested format
+    if "data" in response_data:
+        actual_data = response_data["data"]
+        services_data = actual_data.get("services", {})
+    else:
+        services_data = response_data.get("services", {})
+
+    for service_name, service_result in services_data.items():
+        # Handle nested format in Gateway 2
+        if service_result.get("status") == "success" and "data" in service_result:
+            # Gateway 2 format - use data.status
+            actual_data = service_result["data"]
+            status = actual_data.get("status", "pass")
+            details = actual_data.get("details", {})
+        else:
+            # Gateway 1 format - use status directly
+            status = service_result.get("status", "pass")
+            details = service_result.get("details", {})
+
+        # Map gateway statuses to frontend statuses
+        if status == "fail":
+            frontend_status = "blocked"
+            triggered = True
+            description = f"{service_descriptions[service_name]} - Content blocked"
+        elif status in ["flagged", "refrain", "allowed_with_warning", "screened", "monitored"]:
+            frontend_status = "flagged"
+            triggered = True
+            if status == "refrain":
+                description = f"{service_descriptions[service_name]} - Content advised against"
+            elif status == "allowed_with_warning":
+                description = f"{service_descriptions[service_name]} - Allowed with warnings"
+            elif status == "screened":
+                description = f"{service_descriptions[service_name]} - Content screened"
+            elif status == "monitored":
+                description = f"{service_descriptions[service_name]} - Content monitored"
+            else:
+                description = f"{service_descriptions[service_name]} - Content flagged"
+        elif status in ["pass", "allowed", "accepted", "review_required"]:
+            frontend_status = "pass"
+            triggered = False
+            if status == "allowed":
+                description = f"{service_descriptions[service_name]} - Content allowed"
+            elif status == "accepted":
+                description = f"{service_descriptions[service_name]} - Content accepted"
+            elif status == "review_required":
+                description = f"{service_descriptions[service_name]} - Review required"
+            else:
+                description = f"{service_descriptions[service_name]} - Content passed"
+        else:
+            frontend_status = "error"
+            triggered = True
+            description = f"{service_descriptions[service_name]} - Error occurred: {status}"
+
+        # Special handling for PII service details
+        if service_name == "pii" and "entities" in details:
+            pii_entities = details["entities"]
+            entity_types = {}
+            for entity in pii_entities:
+                entity_type = entity.get("type", "unknown")
+                if entity_type not in entity_types:
+                    entity_types[entity_type] = 0
+                entity_types[entity_type] += 1
+
+            # Create PII summary for frontend
+            details["pii_summary"] = {
+                "total_count": len(pii_entities),
+                "entity_types": entity_types,
+                "top_entities": pii_entities[:10],  # Top 10 entities
+                "entity_summary": [f"{entity_type}: {count}" for entity_type, count in entity_types.items()]
+            }
+
+        service_info.append(ServiceStatus(
+            service=service_name.replace("_", " ").title(),
+            status=frontend_status,
+            triggered=triggered,
+            description=description,
+            details=details
+        ))
+
+    return service_info
+
+@app.get("/")
+async def health_check():
+    return {"status": "healthy", "service": "Z-Grid Chatbot", "version": "2.0.0"}
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest):
+    start_time = time.time()
+
+    try:
+        # Prepare request for gateway
+        gateway_payload = {
+            "text": request.message,
+            "user_id": request.user_name
+        }
+
+        headers = {
+            "Content-Type": "application/json",
+            "X-API-Key": ZGRID_API_KEY
+        }
+
+        # Call Gateway 2
+        response = requests.post(
+            f"{GATEWAY_URL_V2}/validate",
+            json=gateway_payload,
+            headers=headers,
+            timeout=GATEWAY_TIMEOUT
+        )
+
+        response.raise_for_status()
+        gateway_response = response.json()
+
+        processing_time_ms = (time.time() - start_time) * 1000
+
+        # Determine overall moderation status
+        if "data" in gateway_response:
+            actual_data = gateway_response["data"]
+            services_data = actual_data.get("services", {})
+            overall_status = actual_data.get("overall_status", "pass")
+        else:
+            services_data = gateway_response.get("services", {})
+            overall_status = gateway_response.get("overall_status", "pass")
+
+        # Determine moderation status based on service results
+        moderation_status = "pass"
+        for service_name, service_result in services_data.items():
+            if "data" in service_result and service_result.get("status") == "success":
+                service_status = service_result["data"].get("status", "pass")
+            else:
+                service_status = service_result.get("status", "pass")
+
+            if service_status == "fail":
+                moderation_status = "blocked"
+                break
+            elif service_status in ["flagged", "refrain", "allowed_with_warning"]:
+                if moderation_status != "blocked":
+                    moderation_status = "flagged"
+
+        # Create service details
+        service_details = create_service_details(gateway_response)
+
+        # Generate response based on moderation status
+        if moderation_status == "blocked":
+            response_text = "I apologize, but I cannot process this request as it violates content policies."
+        elif moderation_status == "flagged":
+            response_text = f"I understand your message: \\"{request.message}\\". However, I notice this content may be sensitive. Please proceed with caution."
+        else:
+            response_text = f"Hello {request.user_name}! I received your message: \\"{request.message}\\". How can I help you today?"
+
+        return ChatResponse(
+            response=response_text,
+            moderation_status=moderation_status,
+            service_details=service_details,
+            processing_time_ms=processing_time_ms,
+            gateway_version="Gateway 2"
+        )
+
+    except requests.exceptions.Timeout:
+        logger.error(f"Gateway timeout after {GATEWAY_TIMEOUT} seconds")
+        processing_time_ms = (time.time() - start_time) * 1000
+        return ChatResponse(
+            response="I apologize, but the service is experiencing high demand. Please try again later.",
+            moderation_status="error",
+            service_details=[],
+            processing_time_ms=processing_time_ms,
+            gateway_version="Gateway 2 (Timeout)"
+        )
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Gateway connection error: {e}")
+        processing_time_ms = (time.time() - start_time) * 1000
+        return ChatResponse(
+            response="I apologize, but I am currently experiencing technical difficulties. Please try again later.",
+            moderation_status="error",
+            service_details=[],
+            processing_time_ms=processing_time_ms,
+            gateway_version="Gateway 2 (Error)"
+        )
+
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        processing_time_ms = (time.time() - start_time) * 1000
+        return ChatResponse(
+            response="I apologize, but an unexpected error occurred. Please try again later.",
+            moderation_status="error",
+            service_details=[],
+            processing_time_ms=processing_time_ms,
+            gateway_version="Gateway 2 (Error)"
+        )
+EOF
+
+          echo "Application setup completed successfully";
+        ']
+        volumeMounts:
+        - name: app-volume
+          mountPath: /app
+      containers:
+      - name: chatbot-service
+        image: python:3.11-slim
+        command: ['sh', '-c', '
+          cd /app;
+          echo "Starting chatbot service...";
+          python -m uvicorn app:app --host 0.0.0.0 --port 8010;
+        ']
+        ports:
+        - containerPort: 8010
+          name: http
+          protocol: TCP
+        env:
+        - name: GATEWAY_URL_V2
+          value: "http://134.33.132.66:8008"
+        - name: GATEWAY_URL
+          value: "http://134.33.132.66:8008"
+        - name: ZGRID_API_KEY
+          value: "supersecret123"
+        - name: LOG_LEVEL
+          value: "INFO"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8010
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8010
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: app-volume
+          mountPath: /app
+      volumes:
+      - name: app-volume
+        emptyDir: {}
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zgrid-chatbot-service-external
+  namespace: zgrid
+  labels:
+    app: zgrid-chatbot-service
+    component: chatbot
+spec:
+  selector:
+    app: zgrid-chatbot-service
+  ports:
+  - name: http
+    port: 8010
+    targetPort: 8010
+    protocol: TCP
+  type: LoadBalancer

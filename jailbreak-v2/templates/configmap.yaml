@@ -1,0 +1,66 @@
+{{- /*
+ConfigMap template for jailbreak detection service
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "jailbreak-distilbert.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "jailbreak-distilbert.labels" . | nindent 4 }}
+    app.kubernetes.io/component: configmap
+  annotations:
+    description: "Configuration for optimized jailbreak detection service"
+
+data:
+  # Service Configuration
+  SERVICE_NAME: "{{ include "jailbreak-distilbert.fullname" . }}"
+  SERVICE_PORT: "{{ .Values.service.port }}"
+  SERVICE_HOST: "0.0.0.0"
+  LOG_LEVEL: "{{ .Values.logging.level }}"
+  ENVIRONMENT: "{{ .Release.Namespace }}"
+
+  # Model Configuration
+  MODEL_NAME: "{{ .Values.model.name }}"
+  MODEL_PATH: "{{ .Values.model.path }}"
+  MODEL_VERSION: "{{ .Values.model.version }}"
+  MODEL_TYPE: "sequence-classification"
+  NUM_LABELS: "2"
+  MAX_SEQUENCE_LENGTH: "256"
+
+  # Performance Configuration
+  DEVICE: "cpu"
+  BATCH_SIZE: "16"
+  ENABLE_MODEL_CACHING: "{{ .Values.features.modelCaching }}"
+  MAX_WORKERS: "{{ .Values.performance.workers }}"
+
+  # Detection Thresholds (optimized from training)
+  HIGH_CONFIDENCE_THRESHOLD: "{{ .Values.thresholds.high }}"
+  MEDIUM_CONFIDENCE_THRESHOLD: "{{ .Values.thresholds.medium }}"
+  LOW_CONFIDENCE_THRESHOLD: "{{ .Values.thresholds.low }}"
+  DEFAULT_CONFIDENCE_THRESHOLD: "{{ .Values.thresholds.default }}"
+
+  # API Configuration
+  API_KEYS: "{{ .Values.api.keys }}"
+  REQUEST_TIMEOUT: "{{ .Values.api.timeout }}"
+  MAX_REQUEST_SIZE: "{{ .Values.api.maxRequestSize }}"
+  RATE_LIMIT_REQUESTS: "{{ .Values.api.rateLimit.requests }}"
+  RATE_LIMIT_WINDOW: "{{ .Values.api.rateLimit.window }}"
+
+  # Monitoring & Health
+  HEALTH_CHECK_INTERVAL: "30"
+  METRICS_ENABLED: "{{ .Values.monitoring.enabled }}"
+  PROMETHEUS_PORT: "{{ .Values.service.metricsPort }}"
+
+  # Training Metadata
+  TRAINING_DATA_SIZE: "{{ .Values.model.trainingDataSize }}"
+  TRAINING_ACCURACY: "{{ .Values.model.accuracy }}"
+  TRAINING_F1_SCORE: "{{ .Values.model.f1Score }}"
+  MODEL_SIZE: "{{ .Values.model.maxSize }}"
+
+  # Deployment Information
+  DEPLOYMENT_TIMESTAMP: "{{ now | date "2006-01-02T15:04:05Z" }}"
+  CHART_VERSION: "{{ .Chart.Version }}"
+  CHART_APP_VERSION: "{{ .Chart.AppVersion }}"
+  RELEASE_NAME: "{{ .Release.Name }}"
+  RELEASE_NAMESPACE: "{{ .Release.Namespace }}"

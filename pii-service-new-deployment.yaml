@@ -1,0 +1,181 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pii-service-new
+  namespace: z-grid
+  labels:
+    app: pii-service-new
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pii-service-new
+  template:
+    metadata:
+      labels:
+        app: pii-service-new
+        version: v1
+    spec:
+      containers:
+      - name: pii-service
+        image: python:3.11-slim
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          set -e
+          # Install system dependencies
+          apt-get update && apt-get install -y gcc g++ curl && rm -rf /var/lib/apt/lists/*
+          # Create app directory
+          mkdir -p /app/custom_configs
+          # Install Python dependencies
+          pip install --upgrade pip
+          # Install exact same requirements as local requirements.txt with optimized flags
+          pip install --only-binary=:all: --prefer-binary fastapi==0.100.1 uvicorn[standard]==0.23.2
+          # Install compatible NumPy version first to avoid binary incompatibility
+          pip install --only-binary=:all: --prefer-binary numpy==1.24.3
+          pip install --only-binary=:all: --prefer-binary presidio-analyzer==2.2.355 presidio-anonymizer==2.2.355
+          pip install --only-binary=:all: --prefer-binary spacy==3.5.3 phonenumbers==8.13.11
+          pip install --only-binary=:all: --prefer-binary "torch>=2.1.0,<2.3.0" gliner==0.2.13 "huggingface_hub>=0.21.4"
+          pip install --only-binary=:all: --prefer-binary pydantic==1.10.13 python-dotenv==1.0.1
+          # Download SpaCy model
+          python -m spacy download en_core_web_sm --direct
+          # Download GLiNER model (let the service handle this dynamically)
+          echo "GLiNER model will be downloaded on-demand by the service"
+          # Start the service
+          cd /app
+          python -m uvicorn app:app --host 0.0.0.0 --port 8000
+        ports:
+        - containerPort: 8000
+          name: http
+        env:
+        - name: PII_API_KEYS
+          valueFrom:
+            secretKeyRef:
+              name: pii-secrets
+              key: api-keys
+              optional: true
+        - name: PII_ADMIN_API_KEYS
+          valueFrom:
+            secretKeyRef:
+              name: pii-secrets
+              key: admin-api-keys
+              optional: true
+        - name: PRESIDIO_LANGUAGE
+          value: "en"
+        - name: ENTITIES
+          value: "EMAIL_ADDRESS,PHONE_NUMBER,CREDIT_CARD,US_SSN,US_PASSPORT,IP_ADDRESS,IBAN_CODE,PERSON,LOCATION,ORGANIZATION,IN_AADHAAR,IN_PAN,IN_PASSPORT,DATE_TIME,DATE,TIME,MONEY,CURRENCY,AMOUNT,NRP,URL,DOMAIN_NAME"
+        - name: ENTITY_THRESHOLDS
+          valueFrom:
+            configMapKeyRef:
+              name: pii-config
+              key: entity-thresholds
+        - name: PLACEHOLDERS
+          valueFrom:
+            configMapKeyRef:
+              name: pii-config
+              key: placeholders
+        - name: GLINER_MODEL
+          value: "urchade/gliner_small-v2.1"
+        - name: GLINER_LOCAL_DIR
+          value: "/tmp/gliner_model"
+        - name: CORS_ALLOWED_ORIGINS
+          value: "https://preview--zgrid-feature-flow.lovable.app,https://zgrid-feature-flow.lovable.app"
+        - name: PYTHONPATH
+          value: "/app"
+        volumeMounts:
+        - name: pii-code
+          mountPath: /app/app.py
+          subPath: app.py
+        - name: pii-code
+          mountPath: /app/pii_gliner.py
+          subPath: pii_gliner.py
+        - name: pii-code
+          mountPath: /app/pii_presidio.py
+          subPath: pii_presidio.py
+        - name: pii-code
+          mountPath: /app/utils.py
+          subPath: utils.py
+        - name: pii-code
+          mountPath: /app/custom_configs/custom_entities.json
+          subPath: custom_entities.json
+        - name: pii-code
+          mountPath: /app/custom_configs/custom_placeholders.json
+          subPath: custom_placeholders.json
+        - name: pii-code
+          mountPath: /app/custom_configs/custom_thresholds.json
+          subPath: custom_thresholds.json
+        - name: pii-code
+          mountPath: /app/custom_config.py
+          subPath: custom_config.py
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "500m"
+          limits:
+            memory: "4Gi"
+            cpu: "3000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 900
+          periodSeconds: 120
+          timeoutSeconds: 60
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 600
+          periodSeconds: 60
+          timeoutSeconds: 30
+          failureThreshold: 3
+      volumes:
+      - name: pii-code
+        configMap:
+          name: pii-service-code
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pii-service-new
+  namespace: z-grid
+  labels:
+    app: pii-service-new
+spec:
+  selector:
+    app: pii-service-new
+  ports:
+  - name: http
+    port: 8000
+    targetPort: 8000
+    protocol: TCP
+  type: LoadBalancer
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: pii-service-new-hpa
+  namespace: z-grid
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: pii-service-new
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80

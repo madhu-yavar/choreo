@@ -1,0 +1,15 @@
+{
+  "model_name": "Inetuned Gibbrish Model",
+  "model_version": "v1.0",
+  "base_model": "madhurjindal/autonlp-Gibberish-Detector-492513457",
+  "training_date": "2025-11-25",
+  "training_samples": 298,
+  "training_accuracy": 0.967,
+  "f1_score": 0.944,
+  "epochs": 10,
+  "model_size_mb": 267,
+  "categories": ["clean", "mild gibberish", "word salad", "noise"],
+  "languages": ["english"],
+  "framework": "transformers",
+  "format": "safetensors"
+}

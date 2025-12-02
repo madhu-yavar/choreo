@@ -1,0 +1,175 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: inetuned-model-setup
+  namespace: z-grid
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: model-setup
+        image: python:3.11-slim
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          set -e
+          echo "🚀 Setting up Inetuned Gibbrish Model files..."
+
+          # Install basic tools
+          pip install --no-cache-dir requests
+
+          # Create model directory structure
+          mkdir -p /model_volume/inetuned_gibbrish_model
+          echo "📁 Created model directory: /model_volume/inetuned_gibbrish_model"
+
+          # Create essential model configuration files
+          cat << 'EOF' > /model_volume/inetuned_gibbrish_model/config.json
+          {
+            "architectures": ["BertForSequenceClassification"],
+            "model_type": "bert",
+            "num_labels": 2,
+            "id2label": {"0": "clean", "1": "gibberish"},
+            "label2id": {"clean": 0, "gibberish": 1},
+            "problem_type": "single_label_classification",
+            "torch_dtype": "float32",
+            "transformers_version": "4.30.0"
+          }
+          EOF
+
+          cat << 'EOF' > /model_volume/inetuned_gibbrish_model/tokenizer_config.json
+          {
+            "do_lower_case": true,
+            "model_max_length": 512,
+            "padding_side": "right",
+            "truncation_side": "right",
+            "clean_up_tokenization_spaces": true,
+            "use_fast": true
+          }
+          EOF
+
+          cat << 'EOF' > /model_volume/inetuned_gibbrish_model/special_tokens_map.json
+          {
+            "unk_token": "[UNK]",
+            "sep_token": "[SEP]",
+            "pad_token": "[PAD]",
+            "cls_token": "[CLS]",
+            "mask_token": "[MASK]"
+          }
+          EOF
+
+          # Create a minimal tokenizer vocabulary
+          # In production, this should be your actual trained tokenizer
+          cat << 'EOF' > /model_volume/inetuned_gibbrish_model/vocab.txt
+          [PAD]
+          [UNK]
+          [CLS]
+          [SEP]
+          [MASK]
+          the
+          and
+          or
+          but
+          in
+          on
+          at
+          to
+          for
+          of
+          with
+          by
+          from
+          as
+          is
+          was
+          are
+          were
+          been
+          be
+          have
+          has
+          had
+          do
+          does
+          did
+          will
+          would
+          could
+          should
+          may
+          might
+          can
+          this
+          that
+          these
+          those
+          i
+          you
+          he
+          she
+          it
+          we
+          they
+          me
+          him
+          her
+          us
+          them
+          my
+          your
+          his
+          her
+          its
+          our
+          their
+          mine
+          yours
+          ours
+          theirs
+          hello
+          world
+          how
+          are
+          today
+          good
+          morning
+          thank
+          please
+          help
+          yes
+          no
+          EOF
+
+          echo "✅ Model configuration files created"
+          echo "📍 Model files ready at: /model_volume/inetuned_gibbrish_model"
+
+          # Note: The actual model.safetensors file needs to be uploaded separately
+          # You can copy it using: kubectl cp
+
+          echo ""
+          echo "📋 NEXT STEPS:"
+          echo "1. Copy your trained model files to PVC:"
+          echo "   kubectl cp models/hf_space_efficient/inetuned_gibbrish_model/model.safetensors \\"
+          echo "     inetuned-model-setup-<pod-id>:/model_volume/inetuned_gibbrish_model/ -n z-grid"
+          echo ""
+          echo "2. Copy tokenizer files:"
+          echo "   kubectl cp models/hf_space_efficient/inetuned_gibbrish_model/tokenizer.json \\"
+          echo "     inetuned-model-setup-<pod-id>:/model_volume/inetuned_gibbrish_model/ -n z-grid"
+          echo ""
+          echo "3. Deploy the service:"
+          echo "   kubectl apply -f gibberish-service-k8s-native.yaml -n z-grid"
+
+          # List what we have
+          echo ""
+          echo "📁 Current model files:"
+          ls -la /model_volume/inetuned_gibbrish_model/
+
+        volumeMounts:
+        - name: model-volume
+          mountPath: /model_volume
+      volumes:
+      - name: model-volume
+        persistentVolumeClaim:
+          claimName: gibberish-model-pvc
+  backoffLimit: 3
+  

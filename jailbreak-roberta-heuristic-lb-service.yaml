@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: jailbreak-roberta-heuristic-lb-service
+  namespace: z-grid
+  labels:
+    app: jailbreak-roberta-heuristic
+    service-type: content-moderation
+    version: enhanced-v1
+    access-type: external
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "false"
+    service.beta.kubernetes.io/azure-load-balancer-tcp-idle-timeout: "4"
+    prometheus.io/path: /metrics
+    prometheus.io/port: "8080"
+    prometheus.io/scrape: "true"
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 5005
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  selector:
+    app: jailbreak-roberta-heuristic
+  sessionAffinity: None

@@ -1,0 +1,422 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pii-service-fixed
+  namespace: z-grid
+  labels:
+    app: pii-service-fixed
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pii-service-fixed
+  template:
+    metadata:
+      labels:
+        app: pii-service-fixed
+    spec:
+      containers:
+      - name: pii-service-fixed
+        image: python:3.11-slim
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          echo "Installing Flask..."
+          pip install flask requests
+          echo "Starting PII Service..."
+          cat > /tmp/pii_app.py << 'PYEOF'
+          from flask import Flask, request, jsonify
+          from datetime import datetime
+          import re
+          import hashlib
+          import json
+
+          app = Flask(__name__)
+          PII_API_KEYS = ['pii123', 'supersecret123', 'biasyavar', 'enhancedpii123']
+
+          # PII detection patterns
+          PII_PATTERNS = {
+              # Email addresses
+              'email': [
+                  r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
+                  r'\b[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b'
+              ],
+
+              # Phone numbers (various formats)
+              'phone': [
+                  r'\b\d{3}-\d{3}-\d{4}\b',  # 123-456-7890
+                  r'\b\(\d{3}\)\s*\d{3}-\d{4}\b',  # (123) 456-7890
+                  r'\b\d{1}\s*\d{3}\s*\d{3}\s*\d{4}\b',  # 1 123 456 7890
+                  r'\b\d{10,}\b',  # 1234567890
+                  r'\b\+?\d{1,3}?[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b'  # International
+              ],
+
+              # Social Security Numbers
+              'ssn': [
+                  r'\b\d{3}-\d{2}-\d{4}\b',  # 123-45-6789
+                  r'\b\d{9}\b',  # 123456789
+                  r'\b\d{3}\s*\d{2}\s*\d{4}\b'  # 123 45 6789
+              ],
+
+              # Credit card numbers
+              'credit_card': [
+                  r'\b4\d{3}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b',  # Visa starts with 4
+                  r'\b5\d{3}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b',  # MasterCard starts with 5
+                  r'\b3\d{3}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b',  # American Express starts with 3
+                  r'\b6\d{3}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b'  # Discover starts with 6
+              ],
+
+              # IP addresses
+              'ip_address': [
+                  r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b',  # IPv4
+                  r'\b[0-9a-fA-F]{1,4}(:[0-9a-fA-F]{1,4}){7}\b'  # IPv6 (simplified)
+              ],
+
+              # URLs
+              'url': [
+                  r'https?://(?:[-\w.])+(?:\.[a-z]{2,})+(?:/[^/\s]*)?',
+                  r'www\.(?:[-\w.])+(?:\.[a-z]{2,})+(?:/[^/\s]*)?'
+              ],
+
+              # Addresses
+              'address': [
+                  r'\d+\s+[\w\s]+\s+(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Ln|Drive|Dr|Court|Ct|Place|Pl)',
+                  r'\b[A-Z][a-z]+,\s*[A-Z]{2}\s*\d{5}\b',  # City, ST 12345
+                  r'\b\d{1,5}\s+[\w\s]+(?:Street|St|Avenue|Ave)\b'
+              ],
+
+              # IDs and numbers
+              'id_numbers': [
+                  r'\b[A-Z]{2}\s*?\d{8}\b',  # UK National Insurance
+                  r'\b\d{3}-\d{2}-\d{4}\b',  # Could be SSN or other
+                  r'\b\d{7,9}[A-Z]\b',  # License numbers ending in letter
+                  r'\b[A-Z]\d{6,}\b'  # Various ID formats
+              ],
+
+              # Names (simplified)
+              'names': [
+                  r'\b(?:Mr|Mrs|Ms|Dr|Prof|Sir|Madam)\s+[A-Z][a-z]+\s+[A-Z][a-z]+\b',
+                  r'\b[A-Z][a-z]+\s+[A-Z][a-z]+\b\s(?:lives?|resides?|works?|works?|lives?)\b'
+              ]
+          }
+
+          # High-confidence PII keywords
+          PII_KEYWORDS = [
+              'password', 'passphrase', 'ssn', 'social security', 'credit card', 'debit card',
+              'bank account', 'routing number', 'account number', 'driver license', 'passport',
+              'birth date', 'date of birth', 'phone number', 'email address', 'home address',
+              'mailing address', 'mother\'s maiden name', 'security question', 'pin', 'secret'
+          ]
+
+          def validate_api_key():
+              api_key = request.headers.get('X-API-Key')
+              return api_key in PII_API_KEYS
+
+          def detect_pii(text):
+              findings = []
+              pii_score = 0.0
+              text_lower = text.lower()
+
+              # Check against patterns
+              for pii_type, patterns in PII_PATTERNS.items():
+                  for pattern in patterns:
+                      matches = re.finditer(pattern, text, re.IGNORECASE)
+                      for match in matches:
+                          # Calculate confidence based on pattern strength
+                          confidence = get_pattern_confidence(pii_type, match.group(0), text)
+
+                          # Mask the detected PII
+                          original = match.group(0)
+                          if pii_type == 'email':
+                              masked_part = original[:3] + '***' + original[original.find('@'):]
+                          elif pii_type in ['phone', 'ssn', 'credit_card']:
+                              masked = original[:2] + '***' + original[-2:]
+                          elif pii_type == 'id_numbers':
+                              masked = original[:3] + '***' + original[-3:]
+                          elif len(original) > 10:
+                              masked = original[:5] + '***' + original[-5:]
+                          else:
+                              masked = '*' * len(original)
+
+                          findings.append({
+                              'type': pii_type,
+                              'matched_text': masked,
+                              'original_length': len(original),
+                              'position': match.start(),
+                              'confidence': confidence
+                          })
+                          pii_score += confidence * 0.1
+
+              # Check for PII keywords
+              for keyword in PII_KEYWORDS:
+                  if keyword in text_lower:
+                      positions = [m.start() for m in re.finditer(rf'\\b{re.escape(keyword)}\\b', text_lower)]
+                      for pos in positions:
+                          findings.append({
+                              'type': 'pii_keyword',
+                              'matched_text': keyword,
+                              'position': pos,
+                              'confidence': 0.6
+                          })
+                          pii_score += 0.15
+
+              # Additional checks for sequences
+              if re.search(r'\b\d{4}[-\s]\d{4}[-\s]\d{4}[-\s]\d{4}\b', text):
+                  findings.append({
+                      'type': 'card_number_sequence',
+                      'matched_text': 'Card number pattern',
+                      'position': 0,
+                      'confidence': 0.8
+                  })
+                  pii_score += 0.2
+
+              return {
+                  'findings': findings,
+                  'pii_score': min(pii_score, 1.0),
+                  'has_pii': pii_score > 0.3,
+                  'analysis': {
+                      'text_length': len(text),
+                      'pii_types_found': list(set([f['type'] for f in findings])),
+                      'keyword_matches': len([f for f in findings if f['type'] == 'pii_keyword']),
+                      'pattern_matches': len([f for f in findings if f['type'] != 'pii_keyword'])
+                  }
+              }
+
+          def get_pattern_confidence(pii_type, match, full_text):
+              """Calculate confidence based on context and pattern strength"""
+              base_confidence = {
+                  'email': 0.9,
+                  'phone': 0.8,
+                  'ssn': 0.9,
+                  'credit_card': 0.8,
+                  'ip_address': 0.7,
+                  'url': 0.6,
+                  'address': 0.7,
+                  'id_numbers': 0.6,
+                  'names': 0.5
+              }.get(pii_type, 0.5)
+
+              # Boost confidence if in proper context
+              context_keywords = ['contact', 'information', 'details', 'profile', 'account', 'user']
+              if any(keyword in full_text.lower() for keyword in context_keywords):
+                  base_confidence *= 1.2
+
+              return min(base_confidence, 1.0)
+
+          def mask_pii_in_text(text, findings):
+              """Replace PII in text with masked versions"""
+              masked_text = text
+
+              # Sort by position in reverse order to avoid index shifting
+              findings_sorted = sorted(findings, key=lambda x: x['position'], reverse=True)
+
+              for finding in findings_sorted:
+                  if finding['type'] != 'pii_keyword':
+                      # Find the original text to replace
+                      start_pos = finding['position']
+                      end_pos = start_pos + finding['original_length']
+                      original = masked_text[start_pos:end_pos]
+                      replacement = finding['matched_text']
+                      masked_text = masked_text[:start_pos] + replacement + masked_text[end_pos:]
+
+              return masked_text
+
+          def generate_hash(text):
+              """Generate a consistent hash for text fingerprinting"""
+              return hashlib.sha256(text.encode()).hexdigest()[:16]
+
+          @app.route('/health', methods=['GET'])
+          def health():
+              return jsonify({
+                  'ok': True,
+                  'service': 'PII Detection Service',
+                  'status': 'running',
+                  'timestamp': datetime.now().isoformat()
+              })
+
+          @app.route('/pii/detect', methods=['POST'])
+          def detect_pii_endpoint():
+              if not validate_api_key():
+                  return jsonify({'error': 'Invalid API key'}), 401
+
+              data = request.get_json()
+              if not data or 'text' not in data:
+                  return jsonify({'error': 'Text is required'}), 400
+
+              text = data['text']
+              result = detect_pii(text)
+
+              return jsonify({
+                  'text_hash': generate_hash(text),
+                  'text_sample': text[:100] + ('...' if len(text) > 100 else ''),
+                  'detection_time': datetime.now().isoformat(),
+                  **result
+              })
+
+          @app.route('/pii/redact', methods=['POST'])
+          def redact_pii():
+              if not validate_api_key():
+                  return jsonify({'error': 'Invalid API key'}), 401
+
+              data = request.get_json()
+              if not data or 'text' not in data:
+                  return jsonify({'error': 'Text is required'}), 400
+
+              text = data['text']
+              result = detect_pii(text)
+              masked_text = mask_pii_in_text(text, result['findings'])
+
+              return jsonify({
+                  'original_length': len(text),
+                  'redacted_length': len(masked_text),
+                  'pii_found': result['has_pii'],
+                  'pii_count': len(result['findings']),
+                  'pii_types': result['analysis']['pii_types_found'],
+                  'masked_text': masked_text,
+                  'redaction_time': datetime.now().isoformat()
+              })
+
+          @app.route('/pii/analyze', methods=['POST'])
+          def analyze_pii():
+              if not validate_api_key():
+                  return jsonify({'error': 'Invalid API key'}), 401
+
+              data = request.get_json()
+              if not data or 'text' not in data:
+                  return jsonify({'error': 'Text is required'}), 400
+
+              text = data['text']
+              result = detect_pii(text)
+
+              # Risk assessment
+              risk_level = 'low'
+              if result['pii_score'] > 0.7:
+                  risk_level = 'high'
+              elif result['pii_score'] > 0.4:
+                  risk_level = 'medium'
+
+              # Compliance recommendations
+              recommendations = []
+              if risk_level == 'high':
+                  recommendations.extend([
+                      'BLOCK: High PII content detected',
+                      'Immediate redaction required',
+                      'Review data handling procedures'
+                  ])
+              elif risk_level == 'medium':
+                  recommendations.extend([
+                      'REVIEW: PII content detected',
+                      'Consider partial redaction',
+                      'Monitor data access'
+                  ])
+              else:
+                  recommendations.extend([
+                      'SAFE: No significant PII detected',
+                      'Standard monitoring recommended'
+                  ])
+
+              return jsonify({
+                  'risk_assessment': {
+                      'risk_level': risk_level,
+                      'pii_score': round(result['pii_score'], 2),
+                      'compliance_score': round(100 - (result['pii_score'] * 100), 1),
+                      'recommendations': recommendations
+                  },
+                  'pii_analysis': result,
+                  'data_fingerprint': generate_hash(text),
+                  'analysis_time': datetime.now().isoformat()
+              })
+
+          @app.route('/pii/stats', methods=['GET'])
+          def get_stats():
+              return jsonify({
+                  'service_info': {
+                      'name': 'PII Detection Service',
+                      'version': '1.0.0',
+                      'pii_types_detected': list(PII_PATTERNS.keys()),
+                      'pii_keywords_count': len(PII_KEYWORDS)
+                  },
+                  'capabilities': [
+                      'Email address detection',
+                      'Phone number detection (multiple formats)',
+                      'Social Security Number detection',
+                      'Credit card number detection',
+                      'IP address detection',
+                      'URL detection',
+                      'Address detection',
+                      'ID number detection',
+                      'Name detection',
+                      'PII keyword detection',
+                      'Text redaction and masking',
+                      'Risk assessment'
+                  ]
+              })
+
+          @app.route('/pii/examples', methods=['GET'])
+          def get_examples():
+              return jsonify({
+                  'pii_examples': [
+                      'Contact John Doe at john.doe@email.com or call 123-456-7890. SSN: 123-45-6789. Credit card: 4111-1111-1111-1111.',
+                      'Billing address: 123 Main Street, New York, NY 10001. Phone: (212) 555-1234.',
+                      'Driver license: A12345678. Passport number: 987654321. Mother\'s maiden name: Smith.',
+                      'Account: 123456789, routing: 021000021, PIN: 1234.'
+                  ],
+                  'safe_examples': [
+                      'This is a sample document with no personal information.',
+                      'Please review the attached files for approval.',
+                      'The weather is nice today for outdoor activities.',
+                      'Machine learning algorithms process large datasets efficiently.'
+                  ]
+                  ],
+                  'redaction_examples': [
+                      'Original: "Contact john@example.com for more information"',
+                      'Redacted: "Contact joh***@example.com for more information"',
+                      'Original: "Call 555-123-4567 between 9 AM and 5 PM"',
+                      'Redacted: "Call 55***-67 between 9 AM and 5 PM"'
+                  ]
+              })
+
+          if __name__ == '__main__':
+              print("🚀 PII Service Starting on port 8000...")
+              app.run(host='0.0.0.0', port=8000, debug=False)
+          PYEOF
+          python3 /tmp/pii_app.py
+        ports:
+        - containerPort: 8000
+        env:
+        - name: PII_API_KEYS
+          value: "pii123,supersecret123,biasyavar,enhancedpii123"
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pii-service-fixed
+  namespace: z-grid
+spec:
+  selector:
+    app: pii-service-fixed
+  ports:
+  - port: 8000
+    targetPort: 8000
+  type: LoadBalancer

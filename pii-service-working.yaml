@@ -1,0 +1,290 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pii-service-working
+  namespace: z-grid
+  labels:
+    app: pii-service-working
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pii-service-working
+  template:
+    metadata:
+      labels:
+        app: pii-service-working
+    spec:
+      containers:
+      - name: pii-service-working
+        image: python:3.11-slim
+        command:
+        - python3
+        - -c
+        - |
+          from flask import Flask, request, jsonify
+          from datetime import datetime
+          import re
+          import hashlib
+          import json
+
+          app = Flask(__name__)
+          PII_API_KEYS = ['pii123', 'supersecret123', 'biasyavar', 'enhancedpii123']
+
+          # Email pattern
+          EMAIL_PATTERN = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+
+          # Phone patterns
+          PHONE_PATTERNS = [
+              r'\b\d{3}-\d{3}-\d{4}\b',  # 123-456-7890
+              r'\b\(\d{3}\)\s*\d{3}-\d{4}\b',  # (123) 456-7890
+              r'\b\d{10}\b'  # 1234567890
+          ]
+
+          # SSN patterns
+          SSN_PATTERNS = [
+              r'\b\d{3}-\d{2}-\d{4}\b',
+              r'\b\d{9}\b'
+          ]
+
+          # Credit card patterns
+          CC_PATTERNS = [
+              r'\b4\d{3}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b',  # Visa
+              r'\b5\d{3}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b',  # MasterCard
+              r'\b3\d{3}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b'   # Amex
+          ]
+
+          # PII keywords
+          PII_KEYWORDS = ['ssn', 'social security', 'credit card', 'password', 'email', 'phone', 'address', 'passport', 'driver license']
+
+          def validate_api_key():
+              api_key = request.headers.get('X-API-Key')
+              return api_key in PII_API_KEYS
+
+          def detect_pii(text):
+              findings = []
+              pii_score = 0.0
+              text_lower = text.lower()
+
+              # Check email
+              emails = re.findall(EMAIL_PATTERN, text)
+              for email in emails:
+                  findings.append({
+                      'type': 'email',
+                      'matched_text': email[:3] + '***' + email[email.find('@'):],
+                      'position': text.find(email),
+                      'confidence': 0.9
+                  })
+                  pii_score += 0.2
+
+              # Check phone numbers
+              for pattern in PHONE_PATTERNS:
+                  phones = re.findall(pattern, text)
+                  for phone in phones:
+                      findings.append({
+                          'type': 'phone',
+                          'matched_text': phone[:2] + '***' + phone[-2:],
+                          'position': text.find(phone),
+                          'confidence': 0.8
+                      })
+                      pii_score += 0.15
+
+              # Check SSN
+              for pattern in SSN_PATTERNS:
+                  ssns = re.findall(pattern, text)
+                  for ssn in ssns:
+                      findings.append({
+                          'type': 'ssn',
+                          'matched_text': ssn[:2] + '***' + ssn[-2:],
+                          'position': text.find(ssn),
+                          'confidence': 0.9
+                      })
+                      pii_score += 0.25
+
+              # Check credit cards
+              for pattern in CC_PATTERNS:
+                  cards = re.findall(pattern, text)
+                  for card in cards:
+                      findings.append({
+                          'type': 'credit_card',
+                          'matched_text': card[:4] + '***' + card[-4:],
+                          'position': text.find(card),
+                          'confidence': 0.8
+                      })
+                      pii_score += 0.2
+
+              # Check PII keywords
+              for keyword in PII_KEYWORDS:
+                  if keyword in text_lower:
+                      findings.append({
+                          'type': 'pii_keyword',
+                          'matched_text': keyword,
+                          'position': text_lower.find(keyword),
+                          'confidence': 0.6
+                      })
+                      pii_score += 0.1
+
+              return {
+                  'findings': findings,
+                  'pii_score': min(pii_score, 1.0),
+                  'has_pii': pii_score > 0.3,
+                  'analysis': {
+                      'text_length': len(text),
+                      'pii_types_found': list(set([f['type'] for f in findings])),
+                      'total_findings': len(findings)
+                  }
+              }
+
+          def mask_pii(text, findings):
+              masked_text = text
+
+              # Sort findings by position in reverse order
+              sorted_findings = sorted(findings, key=lambda x: x['position'], reverse=True)
+
+              for finding in sorted_findings:
+                  if finding['type'] != 'pii_keyword':
+                      start = finding['position']
+                      end = start + len(finding['matched_text']) + (len(finding['matched_text']) - len(finding['matched_text'].replace('*', '')))
+                      original = masked_text[start:end]
+                      replacement = finding['matched_text']
+                      masked_text = masked_text[:start] + replacement + masked_text[end:]
+
+              return masked_text
+
+          def generate_hash(text):
+              return hashlib.sha256(text.encode()).hexdigest()[:16]
+
+          @app.route('/health', methods=['GET'])
+          def health():
+              return jsonify({
+                  'ok': True,
+                  'service': 'PII Detection Service',
+                  'status': 'running',
+                  'timestamp': datetime.now().isoformat()
+              })
+
+          @app.route('/pii/detect', methods=['POST'])
+          def detect_pii():
+              if not validate_api_key():
+                  return jsonify({'error': 'Invalid API key'}), 401
+
+              data = request.get_json()
+              if not data or 'text' not in data:
+                  return jsonify({'error': 'Text is required'}), 400
+
+              text = data['text']
+              result = detect_pii(text)
+
+              return jsonify({
+                  'text_hash': generate_hash(text),
+                  'text_sample': text[:100] + ('...' if len(text) > 100 else ''),
+                  'detection_time': datetime.now().isoformat(),
+                  **result
+              })
+
+          @app.route('/pii/redact', methods=['POST'])
+          def redact_pii():
+              if not validate_api_key():
+                  return jsonify({'error': 'Invalid API key'}), 401
+
+              data = request.get_json()
+              if not data or 'text' not in data:
+                  return jsonify({'error': 'Text is required'}), 400
+
+              text = data['text']
+              result = detect_pii(text)
+              masked_text = mask_pii(text, result['findings'])
+
+              return jsonify({
+                  'original_length': len(text),
+                  'redacted_length': len(masked_text),
+                  'pii_found': result['has_pii'],
+                  'pii_count': len(result['findings']),
+                  'masked_text': masked_text,
+                  'redaction_time': datetime.now().isoformat()
+              })
+
+          @app.route('/pii/analyze', methods=['POST'])
+          def analyze_pii():
+              if not validate_api_key():
+                  return jsonify({'error': 'Invalid API key'}), 401
+
+              data = request.get_json()
+              if not data or 'text' not in data:
+                  return jsonify({'error': 'Text is required'}), 400
+
+              text = data['text']
+              result = detect_pii(text)
+
+              # Risk assessment
+              risk_level = 'low'
+              if result['pii_score'] > 0.7:
+                  risk_level = 'high'
+              elif result['pii_score'] > 0.4:
+                  risk_level = 'medium'
+
+              recommendations = []
+              if risk_level == 'high':
+                  recommendations.extend([
+                      'BLOCK: High PII content detected',
+                      'Immediate redaction required'
+                  ])
+              elif risk_level == 'medium':
+                  recommendations.extend([
+                      'REVIEW: PII content detected',
+                      'Consider partial redaction'
+                  ])
+              else:
+                  recommendations.append('SAFE: No significant PII detected')
+
+              return jsonify({
+                  'risk_assessment': {
+                      'risk_level': risk_level,
+                      'pii_score': round(result['pii_score'], 2),
+                      'compliance_score': round(100 - (result['pii_score'] * 100), 1),
+                      'recommendations': recommendations
+                  },
+                  'pii_analysis': result,
+                  'analysis_time': datetime.now().isoformat()
+              })
+
+          if __name__ == '__main__':
+              print("🚀 PII Service Starting on port 8000...")
+              app.run(host='0.0.0.0', port=8000, debug=False)
+        ports:
+        - containerPort: 8000
+        env:
+        - name: PII_API_KEYS
+          value: "pii123,supersecret123,biasyavar,enhancedpii123"
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pii-service-working
+  namespace: z-grid
+spec:
+  selector:
+    app: pii-service-working
+  ports:
+  - port: 8000
+    targetPort: 8000
+  type: LoadBalancer

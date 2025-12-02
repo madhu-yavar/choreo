@@ -1,0 +1,17 @@
+fastapi==0.115.2
+uvicorn[standard]==0.30.6
+
+# Presidio (Analyzer+Anonymizer) + SpaCy NLP engine
+presidio-analyzer==2.2.355
+presidio-anonymizer==2.2.355
+spacy==3.7.5
+phonenumbers==8.13.45
+
+# GLiNER zero-shot NER (local HF model) - CPU version
+gliner==0.2.10
+torch==2.1.2+cpu --index-url https://download.pytorch.org/whl/cpu
+huggingface_hub>=0.23,<0.35
+
+# pydantic v1 compatible with FastAPI 0.115
+pydantic==1.10.15
+python-dotenv==1.0.1

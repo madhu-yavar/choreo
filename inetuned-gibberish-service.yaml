@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inetuned-gibberish-service
+  namespace: z-grid
+  labels:
+    app: inetuned-gibberish-service
+    version: v1.0
+    model: inetuned_gibbrish_model
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: inetuned-gibberish-service
+  template:
+    metadata:
+      labels:
+        app: inetuned-gibberish-service
+        version: v1.0
+        model: inetuned_gibbrish_model
+    spec:
+      containers:
+      - name: inetuned-gibberish-service
+        image: inetuned-gibberish-service:latest  # Replace with actual registry/image
+        ports:
+        - containerPort: 8081
+          name: http
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8081
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8081
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inetuned-gibberish-service
+  namespace: z-grid
+  labels:
+    app: inetuned-gibberish-service
+spec:
+  selector:
+    app: inetuned-gibberish-service
+  ports:
+  - name: http
+    port: 8081
+    targetPort: 8081
+    protocol: TCP
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: inetuned-gibberish-service-ingress
+  namespace: z-grid
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  rules:
+  - host: gibberish.zgrid.internal  # Replace with actual hostname
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: inetuned-gibberish-service
+            port:
+              number: 8081

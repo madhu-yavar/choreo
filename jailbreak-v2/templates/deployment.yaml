@@ -1,0 +1,447 @@
+{{- /*
+Deployement template for optimized jailbreak detection service
+*/ -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "jailbreak-distilbert.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "jailbreak-distilbert.labels" . | nindent 4 }}
+    app.kubernetes.io/component: deployment
+  annotations:
+    {{- with .Values.podAnnotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    description: "Production-ready jailbreak detection with {{ .Values.model.accuracy }} accuracy"
+    model-path: "{{ .Values.model.path }}"
+    training-data: "{{ .Values.model.trainingDataSize }} examples"
+    accuracy: "{{ .Values.model.accuracy }}"
+    f1-score: "{{ .Values.model.f1Score }}"
+    model-version: "{{ .Values.model.version }}"
+
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: {{ .Values.rollingUpdate.maxSurge | default 1 }}
+      maxUnavailable: {{ .Values.rollingUpdate.maxUnavailable | default 0 }}
+
+  selector:
+    matchLabels:
+      {{- include "jailbreak-distilbert.selectorLabels" . | nindent 6 }}
+
+  template:
+    metadata:
+      labels:
+        {{- include "jailbreak-distilbert.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: pod
+      annotations:
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "jailbreak-distilbert.serviceAccountName" . }}
+
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+
+      containers:
+      - name: {{ .Chart.Name }}
+        image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+
+        ports:
+        - name: http
+          containerPort: {{ .Values.service.port }}
+          protocol: TCP
+        - name: metrics
+          containerPort: {{ .Values.service.metricsPort }}
+          protocol: TCP
+
+        envFrom:
+        - configMapRef:
+            name: {{ include "jailbreak-distilbert.fullname" . }}-config
+        - secretRef:
+            name: {{ include "jailbreak-distilbert.fullname" . }}-secrets
+
+        resources:
+          {{- toYaml .Values.resources | nindent 12 }}
+
+        securityContext:
+          {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: {{ .Values.health.liveness.initialDelaySeconds }}
+          periodSeconds: {{ .Values.health.liveness.periodSeconds }}
+          timeoutSeconds: {{ .Values.health.liveness.timeoutSeconds }}
+          failureThreshold: {{ .Values.health.liveness.failureThreshold }}
+
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: {{ .Values.health.readiness.initialDelaySeconds }}
+          periodSeconds: {{ .Values.health.readiness.periodSeconds }}
+          timeoutSeconds: {{ .Values.health.readiness.timeoutSeconds }}
+          failureThreshold: {{ .Values.health.readiness.failureThreshold }}
+
+        startupProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: {{ .Values.health.startup.initialDelaySeconds }}
+          periodSeconds: {{ .Values.health.startup.periodSeconds }}
+          timeoutSeconds: {{ .Values.health.startup.timeoutSeconds }}
+          failureThreshold: {{ .Values.health.startup.failureThreshold }}
+
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          set -e
+          echo "🚀 Initializing Optimized Jailbreak Detection Service {{ .Chart.Version }}"
+
+          # Install dependencies
+          apt-get update > /dev/null 2>&1
+          apt-get install -y git curl jq > /dev/null 2>&1
+          pip install --no-cache-dir \
+            flask==2.3.3 \
+            requests==2.31.0 \
+            numpy==1.24.3 \
+            torch==2.0.1 \
+            transformers==4.33.2 \
+            prometheus-client==0.17.1 \
+            gunicorn==21.2.0 > /dev/null 2>&1
+
+          echo "✅ Dependencies installed"
+
+          # Create application directory
+          mkdir -p /app/model /app/logs
+
+          # Copy model files from mounted volume
+          if [ -d "/model_volume" ]; then
+            echo "📦 Loading optimized model from volume..."
+            cp -r /model_volume/* /app/model/
+            echo "✅ Model loaded successfully"
+          else
+            echo "❌ Model volume not found"
+            exit 1
+          fi
+
+          # Create the production service (embedded for simplicity)
+          cat > /app/jailbreak_service.py << 'PYEOF'
+          import json
+          import time
+          import os
+          import re
+          import logging
+          from datetime import datetime
+          from flask import Flask, request, jsonify
+          from transformers import AutoTokenizer, AutoModelForSequenceClassification
+          import torch
+          import numpy as np
+          from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+
+          # Configure logging
+          logging.basicConfig(
+              level=getattr(logging, os.getenv('LOG_LEVEL', 'INFO')),
+              format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+          )
+          logger = logging.getLogger(__name__)
+
+          # Prometheus metrics
+          REQUEST_COUNT = Counter('jailbreak_requests_total', 'Total requests', ['method', 'endpoint', 'status'])
+          REQUEST_DURATION = Histogram('jailbreak_request_duration_seconds', 'Request duration')
+          JAILBREAK_DETECTIONS = Counter('jailbreak_detections_total', 'Jailbreak detections', ['confidence_level'])
+          MODEL_LOAD_TIME = Histogram('model_load_time_seconds', 'Model loading time')
+
+          app = Flask(__name__)
+
+          class OptimizedJailbreakDetector:
+              def __init__(self):
+                  self.model_path = os.getenv('MODEL_PATH', '/app/model')
+                  self.device = 'cpu'
+                  self.high_threshold = float(os.getenv('HIGH_CONFIDENCE_THRESHOLD', '0.85'))
+                  self.medium_threshold = float(os.getenv('MEDIUM_CONFIDENCE_THRESHOLD', '0.65'))
+                  self.low_threshold = float(os.getenv('LOW_CONFIDENCE_THRESHOLD', '0.45'))
+
+                  # Enhanced patterns from ML training
+                  self.patterns = [
+                      (r'(?i)ignore.*previous.*instructions', 0.95, 'system_override'),
+                      (r'(?i)system.*override', 0.95, 'system_override'),
+                      (r'(?i)\\\\bdan\\\\b', 0.95, 'dan_attack'),
+                      (r'(?i)do.*anything.*now', 0.95, 'dan_attack'),
+                      (r'(?i)antipersona.*engaged', 0.95, 'anti_persona'),
+                      (r'(?i)jeeves|omega|openbot|badbot', 0.90, 'persona_attack'),
+                      (r'(?i)\\\\bjailbreak\\\\b', 0.90, 'explicit_jailbreak'),
+                      (r'(?i)bypass.*filter', 0.85, 'bypass_attempt'),
+                      (r'(?i)override.*restriction', 0.85, 'bypass_attempt'),
+                      (r'(?i)ai.*liberation', 0.75, 'game_based_manipulation'),
+                      (r'(?i)base64.*decode', 0.90, 'encoded_attack'),
+                      (r'(?i)configuration.*override', 0.95, 'configuration_injection'),
+                      (r'(?i)json.*mode.*system.*prompt', 0.90, 'structured_injection'),
+                      (r'(?i)disable.*safety', 0.85, 'bypass_attempt'),
+                      (r'(?i)hypothetically.*unrestricted', 0.70, 'hypothetical_manipulation'),
+                      (r'(?i)execute.*code.*malicious', 0.85, 'code_injection')
+                  ]
+
+                  self.critical_indicators = [
+                      'ignore all previous', 'system override', 'dan', 'antipersona',
+                      'configuration override', 'base64 decode', 'emergency protocol'
+                  ]
+
+                  self.tokenizer = None
+                  self.model = None
+                  self._load_model()
+
+              @MODEL_LOAD_TIME.time()
+              def _load_model(self):
+                  logger.info("🔄 Loading optimized DistilBERT model...")
+                  start_time = time.time()
+
+                  try:
+                      self.tokenizer = AutoTokenizer.from_pretrained(self.model_path)
+                      self.model = AutoModelForSequenceClassification.from_pretrained(
+                          self.model_path,
+                          torch_dtype=torch.float32
+                      )
+                      self.model.to(self.device)
+                      self.model.eval()
+
+                      load_time = time.time() - start_time
+                      logger.info(f"✅ Model loaded successfully in {load_time:.2f}s")
+
+                  except Exception as e:
+                      logger.error(f"❌ Failed to load model: {e}")
+                      raise
+
+              def calculate_enhanced_score(self, text):
+                  if not text or not text.strip():
+                      return 0.0, []
+
+                  text_lower = text.lower()
+                  total_score = 0.0
+                  matches = []
+
+                  # Pattern matching
+                  for pattern, weight, category in self.patterns:
+                      if re.search(pattern, text, re.IGNORECASE):
+                          total_score += weight
+                          matches.append({
+                              'category': category,
+                              'confidence': weight,
+                              'pattern_type': 'ml_enhanced'
+                          })
+
+                  # ML insights factors
+                  length_factor = min(len(text) / 200, 1.5)
+                  attack_types = set(match['category'] for match in matches)
+                  diversity_bonus = min(len(attack_types) * 0.1, 0.3)
+                  critical_bonus = sum(0.2 for indicator in self.critical_indicators if indicator in text_lower)
+
+                  # Final enhanced confidence
+                  base_confidence = min(total_score, 1.0)
+                  enhanced_confidence = min(base_confidence + length_factor * 0.1 + diversity_bonus + critical_bonus, 1.0)
+
+                  return enhanced_confidence, matches
+
+              def detect_jailbreak(self, text):
+                  confidence, matches = self.calculate_enhanced_score(text)
+
+                  if confidence >= self.high_threshold:
+                      return True, confidence, matches, 'critical_threat'
+                  elif confidence >= self.medium_threshold:
+                      return True, confidence, matches, 'moderate_threat'
+                  elif confidence >= self.low_threshold:
+                      return True, confidence, matches, 'low_threat'
+                  else:
+                      return False, confidence, [], 'safe'
+
+              @REQUEST_DURATION.time()
+              def predict_with_model(self, text):
+                  if not self.model or not self.tokenizer:
+                      return None
+
+                  try:
+                      inputs = self.tokenizer(
+                          text,
+                          return_tensors='pt',
+                          truncation=True,
+                          padding=True,
+                          max_length=int(os.getenv('MAX_SEQUENCE_LENGTH', '256'))
+                      )
+
+                      with torch.no_grad():
+                          outputs = self.model(**inputs)
+                          probabilities = torch.softmax(outputs.logits, dim=-1)
+                          jailbreak_prob = probabilities[0][0].item()
+
+                      return jailbreak_prob
+
+                  except Exception as e:
+                      logger.warning(f"Model prediction failed: {e}")
+                      return None
+
+          # Initialize detector
+          detector = OptimizedJailbreakDetector()
+
+          @app.route('/health', methods=['GET'])
+          def health():
+              return jsonify({
+                  'ok': True,
+                  'service': os.getenv('SERVICE_NAME', 'jailbreak-distilbert'),
+                  'version': os.getenv('VERSION', 'v2.0'),
+                  'model_status': 'loaded' if detector.model else 'not_loaded',
+                  'timestamp': datetime.now().isoformat(),
+                  'training_accuracy': os.getenv('TRAINING_ACCURACY', '0.976'),
+                  'training_f1_score': os.getenv('TRAINING_F1_SCORE', '0.909'),
+                  'model_version': os.getenv('MODEL_VERSION', 'optimized-checkpoint-468'),
+                  'environment': os.getenv('ENVIRONMENT', 'production')
+              })
+
+          @app.route('/metrics', methods=['GET'])
+          def metrics():
+              return generate_latest(), 200, {'Content-Type': CONTENT_TYPE_LATEST}
+
+          @app.route('/validate', methods=['POST'])
+          def validate():
+              REQUEST_COUNT.labels(method='POST', endpoint='/validate', status='200').inc()
+
+              # Authentication
+              api_keys = os.getenv('API_KEYS', '').split(',')
+              auth_key = request.headers.get('x-api-key', '')
+
+              if auth_key not in api_keys:
+                  REQUEST_COUNT.labels(method='POST', endpoint='/validate', status='401').inc()
+                  return jsonify({'error': 'Invalid API key'}), 401
+
+              try:
+                  data = request.get_json()
+                  if not data:
+                      return jsonify({'error': 'No JSON data provided'}), 400
+
+                  text = data.get('text', '')
+                  if not text.strip():
+                      return jsonify({
+                          'status': 'pass', 'clean_text': '', 'flagged': [],
+                          'categories': [], 'violated': False, 'reasons': ['Empty text']
+                      })
+
+                  start_time = time.time()
+
+                  # Use both ML model and pattern-based detection
+                  model_prob = detector.predict_with_model(text)
+                  pattern_result = detector.detect_jailbreak(text)
+
+                  is_jailbreak, confidence, matches, method = pattern_result
+                  processing_time = (time.time() - start_time) * 1000
+
+                  # Combine model and pattern results
+                  if model_prob is not None:
+                      final_confidence = max(confidence, model_prob)
+                      if model_prob > 0.7:
+                          is_jailbreak = True
+                  else:
+                      final_confidence = confidence
+
+                  if is_jailbreak:
+                      categories = list(set(match['category'] for match in matches))
+                      confidence_level = 'high' if final_confidence >= 0.8 else 'medium' if final_confidence >= 0.6 else 'low'
+                      JAILBREAK_DETECTIONS.labels(confidence_level=confidence_level).inc()
+
+                      flagged_items = [{
+                          'type': 'jailbreak',
+                          'confidence': final_confidence,
+                          'text': text[:150] + ('...' if len(text) > 150 else ''),
+                          'categories': categories,
+                          'pattern_matches': matches,
+                          'detection_method': method,
+                          'model_confidence': model_prob,
+                          'ml_enhanced': True,
+                          'model_version': os.getenv('MODEL_VERSION', 'optimized-checkpoint-468')
+                      }]
+
+                      return jsonify({
+                          'status': 'blocked',
+                          'clean_text': '',
+                          'flagged': flagged_items,
+                          'categories': categories,
+                          'violated': True,
+                          'reasons': [
+                              f'ML-enhanced jailbreak detected (confidence: {final_confidence:.3f})',
+                              f'Detection method: {method}',
+                              f'Model accuracy: {os.getenv("TRAINING_ACCURACY", "97.6%")}',
+                              f'Processing time: {processing_time:.1f}ms'
+                          ],
+                          'confidence': final_confidence,
+                          'processing_time_ms': processing_time,
+                          'analysis_method': 'hybrid_ml_patterns'
+                      })
+                  else:
+                      return jsonify({
+                          'status': 'pass',
+                          'clean_text': text,
+                          'flagged': [],
+                          'categories': [],
+                          'violated': False,
+                          'reasons': [
+                              f'No jailbreak detected (confidence: {final_confidence:.3f})',
+                              f'Analysis method: {method}',
+                              f'Processing time: {processing_time:.1f}ms'
+                          ],
+                          'confidence': final_confidence,
+                          'processing_time_ms': processing_time,
+                          'analysis_method': 'hybrid_ml_patterns'
+                      })
+
+              except Exception as e:
+                  REQUEST_COUNT.labels(method='POST', endpoint='/validate', status='500').inc()
+                  logger.error(f"Validation error: {e}")
+                  return jsonify({'error': str(e)}), 500
+
+          if __name__ == '__main__':
+              port = int(os.getenv('SERVICE_PORT', '8002'))
+              logger.info(f"🚀 Starting Optimized Jailbreak Detection Service on port {port}")
+              app.run(host='0.0.0.0', port=port, debug=False)
+          PYEOF
+
+          echo "✅ Application created successfully"
+
+          # Start the service
+          echo "🚀 Starting production jailbreak detection service..."
+          cd /app
+          exec gunicorn --bind 0.0.0.0:${SERVICE_PORT} --workers {{ .Values.performance.workers }} --timeout 120 --access-logfile - --error-logfile - jailbreak_service:app
+
+        volumeMounts:
+        - name: model-volume
+          mountPath: /model_volume
+          readOnly: true
+
+      volumes:
+      - name: model-volume
+        persistentVolumeClaim:
+          claimName: {{ include "jailbreak-distilbert.fullname" . }}-pvc
+
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

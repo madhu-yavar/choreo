@@ -1,0 +1,518 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zgrid-unified-app
+  namespace: zgrid
+data:
+  app.py: |
+    """
+    Z-Grid Unified Service - Frontend and Backend
+    Serves both the React UI and backend API from the same service
+    """
+    from fastapi import FastAPI, HTTPException
+    from fastapi.responses import HTMLResponse
+    from fastapi.middleware.cors import CORSMiddleware
+    from pydantic import BaseModel
+    from typing import Dict, List, Optional, Any
+    import requests
+    import json
+    import os
+    import time
+
+    app = FastAPI(
+        title="Z-Grid Unified Service",
+        description="Z-Grid Feature Marketplace with Content Moderation",
+        version="2.0.0"
+    )
+
+    # CORS middleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # Configuration
+    GATEWAY_URL_V2 = os.getenv("GATEWAY_URL_V2", "http://134.33.132.66:8008")
+    GATEWAY_URL = os.getenv("GATEWAY_URL", GATEWAY_URL_V2)
+    API_KEY = os.getenv("ZGRID_API_KEY", "supersecret123")
+    GATEWAY_TIMEOUT = int(os.getenv("GATEWAY_TIMEOUT", "60"))
+
+    class ChatRequest(BaseModel):
+        message: str
+        user_name: Optional[str] = "anonymous"
+
+    class ServiceStatus(BaseModel):
+        service: str
+        status: str
+        triggered: bool
+        description: str
+        details: Optional[Dict[str, Any]] = None
+
+    class ChatResponse(BaseModel):
+        response: str
+        moderation_status: str
+        service_details: List[ServiceStatus]
+        processing_time_ms: Optional[float] = None
+        gateway_version: Optional[str] = None
+
+    @app.get("/", response_class=HTMLResponse)
+    async def serve_frontend():
+        # Return the Z-Grid Feature Marketplace frontend
+        frontend_html = """
+        <!DOCTYPE html>
+        <html lang="en">
+          <head>
+            <meta charset="UTF-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+            <title>Z-Grid | Feature Marketplace for Developers</title>
+            <meta name="description" content="Discover, explore, and collect powerful validation, security, and analysis features for your applications. Build better software with Z-Grid's curated marketplace." />
+            <meta name="author" content="Z-Grid" />
+            <meta name="keywords" content="feature marketplace, validation, security, code analysis, developer tools, guardrails" />
+            <style>
+              * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+              }
+
+              body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                min-height: 100vh;
+                color: #333;
+              }
+
+              .container {
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 20px;
+              }
+
+              .header {
+                background: rgba(255, 255, 255, 0.95);
+                border-radius: 12px;
+                padding: 30px;
+                margin-bottom: 30px;
+                text-align: center;
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+                backdrop-filter: blur(10px);
+              }
+
+              .header h1 {
+                font-size: 2.5rem;
+                color: #4a5568;
+                margin-bottom: 10px;
+              }
+
+              .header p {
+                font-size: 1.2rem;
+                color: #718096;
+              }
+
+              .demo-section {
+                background: rgba(255, 255, 255, 0.95);
+                border-radius: 12px;
+                padding: 30px;
+                margin-bottom: 30px;
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+                backdrop-filter: blur(10px);
+              }
+
+              .demo-section h2 {
+                font-size: 1.8rem;
+                color: #4a5568;
+                margin-bottom: 20px;
+              }
+
+              .features-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                gap: 20px;
+                margin-top: 30px;
+              }
+
+              .feature-card {
+                background: rgba(255, 255, 255, 0.9);
+                border-radius: 8px;
+                padding: 20px;
+                text-align: center;
+                transition: transform 0.2s ease;
+              }
+
+              .feature-card:hover {
+                transform: translateY(-5px);
+              }
+
+              .feature-icon {
+                font-size: 2.5rem;
+                margin-bottom: 15px;
+              }
+
+              .feature-title {
+                font-size: 1.3rem;
+                color: #4a5568;
+                margin-bottom: 10px;
+              }
+
+              .feature-description {
+                color: #718096;
+                line-height: 1.6;
+              }
+
+              .cta-button {
+                display: inline-block;
+                background: linear-gradient(135deg, #3182ce, #2c5aa0);
+                color: white;
+                padding: 15px 30px;
+                border-radius: 25px;
+                text-decoration: none;
+                font-weight: 600;
+                transition: all 0.2s ease;
+                margin-top: 20px;
+              }
+
+              .cta-button:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 20px rgba(49, 130, 206, 0.4);
+              }
+            </style>
+          </head>
+
+          <body>
+            <div class="container">
+              <div class="header">
+                <h1>🚀 Z-Grid Feature Marketplace</h1>
+                <p>Discover, explore, and collect powerful validation, security, and analysis features for your applications</p>
+              </div>
+
+              <div class="demo-section">
+                <h2>🎯 Live Moderation Demo</h2>
+                <p>Experience our AI-powered content moderation system in action. Try different types of messages to see how our services detect and handle various content categories.</p>
+                <a href="/chat" class="cta-button">Try Moderation Chat →</a>
+              </div>
+
+              <div class="demo-section">
+                <h2>⚡ Core Features</h2>
+                <div class="features-grid">
+                  <div class="feature-card">
+                    <div class="feature-icon">🧠</div>
+                    <div class="feature-title">Intelligent Routing</div>
+                    <div class="feature-description">Phi-powered classification system that intelligently routes content through appropriate moderation services</div>
+                  </div>
+
+                  <div class="feature-card">
+                    <div class="feature-icon">🔒</div>
+                    <div class="feature-title">PII Detection</div>
+                    <div class="feature-description">Automatically identifies and protects personally identifiable information in user content</div>
+                  </div>
+
+                  <div class="feature-card">
+                    <div class="feature-icon">⚖️</div>
+                    <div class="feature-title">Policy Enforcement</div>
+                    <div class="feature-description">Enforces content policies with configurable rules and thresholds</div>
+                  </div>
+
+                  <div class="feature-card">
+                    <div class="feature-icon">🎭</div>
+                    <div class="feature-title">Bias Detection</div>
+                    <div class="feature-description">Identifies and flags biased or stereotypical content patterns</div>
+                  </div>
+
+                  <div class="feature-card">
+                    <div class="feature-icon">☠️</div>
+                    <div class="feature-title">Toxicity Analysis</div>
+                    <div class="feature-description">Detects toxic language patterns and harmful content</div>
+                  </div>
+
+                  <div class="feature-card">
+                    <div class="feature-icon">🛡️</div>
+                    <div class="feature-title">Jailbreak Protection</div>
+                    <div class="feature-description">Prevents prompt injection attacks and adversarial inputs</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="demo-section">
+                <h2>🏗️ Developer-Friendly Architecture</h2>
+                <p>Built with modern microservices architecture, providing scalable and reliable content moderation for applications of any size.</p>
+                <div class="features-grid">
+                  <div class="feature-card">
+                    <div class="feature-icon">🔗</div>
+                    <div class="feature-title">REST API</div>
+                    <div class="feature-description">Simple HTTP API for easy integration into existing workflows</div>
+                  </div>
+
+                  <div class="feature-card">
+                    <div class="feature-icon">📊</div>
+                    <div class="feature-title">Real-time Analytics</div>
+                    <div class="feature-description">Monitor moderation performance and content trends in real-time</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </body>
+        </html>
+        """
+        return HTMLResponse(content=frontend_html)
+
+    def create_service_details(response_data: dict) -> List[ServiceStatus]:
+        service_descriptions = {
+            "pii": "PII Detection - Detects personally identifiable information",
+            "policy": "Policy Service - Blocks harmful policy violations",
+            "bias": "Bias Detection - Detects biased or stereotypical content",
+            "toxicity": "Toxicity Detection - Identifies toxic language patterns",
+            "jailbreak": "Jailbreak Detection - Prevents prompt injection attacks",
+            "secrets": "Secrets Detection - Identifies exposed sensitive data",
+            "ban": "Ban Service - Blocks adult/banned content",
+            "format": "Format Checker - Validates response formatting",
+            "gibberish": "Gibberish Detection - Identifies nonsense text"
+        }
+
+        service_info = []
+
+        # Handle Gateway 2 nested format
+        if "data" in response_data:
+            actual_data = response_data["data"]
+            services_data = actual_data.get("services", {})
+        else:
+            services_data = response_data.get("services", {})
+
+        for service_name, service_result in services_data.items():
+            # Handle nested format in Gateway 2
+            if service_result.get("status") == "success" and "data" in service_result:
+                # Gateway 2 format - use data.status
+                actual_data = service_result["data"]
+                status = actual_data.get("status", "pass")
+                details = actual_data.get("details", {})
+            else:
+                # Gateway 1 format - use status directly
+                status = service_result.get("status", "pass")
+                details = service_result.get("details", {})
+
+            # Map gateway statuses to frontend statuses
+            if status == "fail":
+                frontend_status = "blocked"
+                triggered = True
+                description = f"{service_descriptions[service_name]} - Content blocked"
+            elif status in ["flagged", "refrain", "allowed_with_warning", "screened", "monitored"]:
+                frontend_status = "flagged"
+                triggered = True
+                description = f"{service_descriptions[service_name]} - Content flagged"
+            elif status in ["pass", "allowed", "accepted", "review_required"]:
+                frontend_status = "pass"
+                triggered = False
+                description = f"{service_descriptions[service_name]} - Content passed"
+            else:
+                frontend_status = "error"
+                triggered = True
+                description = f"{service_descriptions[service_name]} - Error occurred: {status}"
+
+            service_info.append(ServiceStatus(
+                service=service_name.replace("_", " ").title(),
+                status=frontend_status,
+                triggered=triggered,
+                description=description,
+                details=details
+            ))
+
+        return service_info
+
+    @app.get("/health")
+    async def health_check():
+        return {"status": "healthy", "service": "Z-Grid Unified Service", "version": "2.0.0"}
+
+    @app.post("/chat", response_model=ChatResponse)
+    async def chat(request: ChatRequest):
+        start_time = time.time()
+
+        try:
+            # Prepare request for gateway
+            gateway_payload = {
+                "text": request.message,
+                "user_id": request.user_name
+            }
+
+            headers = {
+                "Content-Type": "application/json",
+                "X-API-Key": API_KEY
+            }
+
+            # Call Gateway 2
+            response = requests.post(
+                f"{GATEWAY_URL}/validate",
+                json=gateway_payload,
+                headers=headers,
+                timeout=GATEWAY_TIMEOUT
+            )
+
+            response.raise_for_status()
+            gateway_response = response.json()
+
+            processing_time_ms = (time.time() - start_time) * 1000
+
+            # Determine overall moderation status
+            if "data" in gateway_response:
+                actual_data = gateway_response["data"]
+                services_data = actual_data.get("services", {})
+                overall_status = actual_data.get("overall_status", "pass")
+            else:
+                services_data = gateway_response.get("services", {})
+                overall_status = gateway_response.get("overall_status", "pass")
+
+            # Create service details
+            service_details = create_service_details(gateway_response)
+
+            # Generate response based on moderation status
+            if overall_status == "fail":
+                response_text = "I apologize, but I cannot process this request as it violates content policies."
+            elif overall_status in ["flagged", "refrain"]:
+                response_text = f"I understand your message: '{request.message}'. However, I notice this content may be sensitive. Please proceed with caution."
+            else:
+                response_text = f"Hello {request.user_name}! I received your message: '{request.message}'. How can I help you today?"
+
+            return ChatResponse(
+                response=response_text,
+                moderation_status=overall_status,
+                service_details=service_details,
+                processing_time_ms=processing_time_ms,
+                gateway_version="Gateway 2"
+            )
+
+        except requests.exceptions.Timeout:
+            processing_time_ms = (time.time() - start_time) * 1000
+            return ChatResponse(
+                response="I apologize, but the service is experiencing high demand. Please try again later.",
+                moderation_status="error",
+                service_details=[],
+                processing_time_ms=processing_time_ms,
+                gateway_version="Gateway 2 (Timeout)"
+            )
+
+        except requests.exceptions.RequestException as e:
+            processing_time_ms = (time.time() - start_time) * 1000
+            return ChatResponse(
+                response="I apologize, but I am currently experiencing technical difficulties. Please try again later.",
+                moderation_status="error",
+                service_details=[],
+                processing_time_ms=processing_time_ms,
+                gateway_version="Gateway 2 (Error)"
+            )
+
+        except Exception as e:
+            processing_time_ms = (time.time() - start_time) * 1000
+            return ChatResponse(
+                response="I apologize, but an unexpected error occurred. Please try again later.",
+                moderation_status="error",
+                service_details=[],
+                processing_time_ms=processing_time_ms,
+                gateway_version="Gateway 2 (Error)"
+            )
+
+  requirements.txt: |
+    fastapi==0.104.1
+    uvicorn[standard]==0.24.0
+    pydantic==2.4.2
+    requests==2.31.0
+    python-multipart==0.0.6
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zgrid-unified-service
+  namespace: zgrid
+  labels:
+    app: zgrid-unified-service
+    component: unified
+    version: v1.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zgrid-unified-service
+  template:
+    metadata:
+      labels:
+        app: zgrid-unified-service
+        component: unified
+        version: v1.0
+    spec:
+      containers:
+      - name: unified-service
+        image: python:3.11-slim
+        command: ['sh', '-c', '
+          echo "Installing dependencies...";
+          pip install -r /app/requirements.txt;
+          echo "Starting unified Z-Grid service...";
+          cd /app;
+          python -m uvicorn app:app --host 0.0.0.0 --port 8010;
+        ']
+        ports:
+        - containerPort: 8010
+          name: http
+          protocol: TCP
+        env:
+        - name: GATEWAY_URL_V2
+          value: "http://134.33.132.66:8008"
+        - name: GATEWAY_URL
+          value: "http://134.33.132.66:8008"
+        - name: ZGRID_API_KEY
+          value: "supersecret123"
+        - name: LOG_LEVEL
+          value: "INFO"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8010
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8010
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: app-files
+          mountPath: /app
+      volumes:
+      - name: app-files
+        configMap:
+          name: zgrid-unified-app
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zgrid-unified-external
+  namespace: zgrid
+  labels:
+    app: zgrid-unified-service
+    component: unified
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "false"
+spec:
+  selector:
+    app: zgrid-unified-service
+  ports:
+  - name: http
+    port: 8010
+    targetPort: 8010
+    protocol: TCP
+  type: LoadBalancer

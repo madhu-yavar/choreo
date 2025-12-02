@@ -1,0 +1,175 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: unified-chatbot-frontend
+  namespace: zgrid
+data:
+  start.sh: |
+    #!/bin/sh
+    echo "Starting unified Z-Grid service..."
+
+    # Start frontend dev server in background
+    cd /app/frontend
+    echo "Installing frontend dependencies..."
+    npm install
+    echo "Starting frontend development server..."
+    npm run dev &
+
+    # Wait a moment for frontend to start
+    sleep 10
+
+    # Start backend chatbot service
+    cd /app/chatbot
+    echo "Starting backend chatbot service..."
+    python -m uvicorn app:app --host 0.0.0.0 --port 8010
+
+  nginx.conf: |
+    events {
+        worker_connections 1024;
+    }
+
+    http {
+        upstream frontend {
+            server localhost:5173;  # Vite dev server
+        }
+
+        upstream backend {
+            server localhost:8010;  # FastAPI backend
+        }
+
+        server {
+            listen 8080;
+
+            # Frontend routes
+            location / {
+                proxy_pass http://frontend;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+            }
+
+            # Backend API routes
+            location /api {
+                proxy_pass http://backend;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+            }
+
+            # Backend health check and chat endpoints
+            location /chat {
+                proxy_pass http://backend;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+            }
+        }
+    }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zgrid-unified-service
+  namespace: zgrid
+  labels:
+    app: zgrid-unified-service
+    component: unified
+    version: v1.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zgrid-unified-service
+  template:
+    metadata:
+      labels:
+        app: zgrid-unified-service
+        component: unified
+        version: v1.0
+    spec:
+      containers:
+      - name: unified-service
+        image: node:18-alpine
+        command: ['sh', '/scripts/start.sh']
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        env:
+        - name: GATEWAY_URL_V2
+          value: "http://134.33.132.66:8008"
+        - name: GATEWAY_URL
+          value: "http://134.33.132.66:8008"
+        - name: ZGRID_API_KEY
+          value: "supersecret123"
+        - name: LOG_LEVEL
+          value: "INFO"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "300m"
+          limits:
+            memory: "1Gi"
+            cpu: "800m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: frontend-code
+          mountPath: /app/frontend
+        - name: chatbot-code
+          mountPath: /app/chatbot
+        - name: scripts
+          mountPath: /scripts
+      volumes:
+      - name: frontend-code
+        hostPath:
+          path: /Users/yavar/Documents/CoE/z_grid/frontend
+          type: Directory
+      - name: chatbot-code
+        configMap:
+          name: chatbot-app-files
+      - name: scripts
+        configMap:
+          name: unified-chatbot-frontend
+          defaultMode: 0755
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zgrid-unified-external
+  namespace: zgrid
+  labels:
+    app: zgrid-unified-service
+    component: unified
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "false"
+spec:
+  selector:
+    app: zgrid-unified-service
+  ports:
+  - name: http
+    port: 8010
+    targetPort: 8080
+    protocol: TCP
+  type: LoadBalancer

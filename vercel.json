@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "app.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "app.py"
+    }
+  ],
+  "env": {
+    "PRESIDIO_LANGUAGE": "en",
+    "SPACY_MODEL": "en_core_web_lg",
+    "HF_HUB_OFFLINE": "0",
+    "TRANSFORMERS_OFFLINE": "0",
+    "ENTITIES": "EMAIL_ADDRESS,PHONE_NUMBER,CREDIT_CARD,US_SSN,PERSON,LOCATION,IN_AADHAAR,IN_PAN",
+    "GLINER_THRESHOLD": "0.45",
+    "GLINER_LABELS": "person,location,organization",
+    "ENTITY_THRESHOLDS": "{\"EMAIL_ADDRESS\":0.3,\"PHONE_NUMBER\":0.3,\"PERSON\":0.35,\"LOCATION\":0.4}",
+    "PLACEHOLDERS": "{\"DEFAULT\":\"[REDACTED]\",\"EMAIL_ADDRESS\":\"[EMAIL]\",\"PHONE_NUMBER\":\"[PHONE]\",\"CREDIT_CARD\":\"[CARD]\",\"US_SSN\":\"[SSN]\",\"PERSON\":\"[PERSON]\",\"LOCATION\":\"[LOCATION]\",\"IN_AADHAAR\":\"[AADHAAR]\",\"IN_PAN\":\"[PAN]\"}",
+    "PII_API_KEYS": "supersecret123,piievalyavar"
+  }
+}

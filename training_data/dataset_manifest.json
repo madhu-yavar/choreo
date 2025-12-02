@@ -1,0 +1,35 @@
+{
+  "dataset_name": "Gibberish Detection Training Dataset",
+  "dataset_version": "v1.0",
+  "total_samples": 298,
+  "created_date": "2025-11-24",
+  "categories": {
+    "general": {
+      "count": 0,
+      "description": "General text samples"
+    },
+    "technical": {
+      "count": 0,
+      "description": "Technical content, URLs, code snippets"
+    },
+    "mixed": {
+      "count": 0,
+      "description": "Mixed valid and gibberish content"
+    },
+    "keyboard": {
+      "count": 0,
+      "description": "Keyboard smashes and repetitive patterns"
+    },
+    "word_salad": {
+      "count": 0,
+      "description": "Random word combinations"
+    }
+  },
+  "labels": {
+    "valid": 0,
+    "gibberish": 0
+  },
+  "model_trained": "Inetuned Gibbrish Model v1.0",
+  "training_accuracy": 0.967,
+  "f1_score": 0.944
+}

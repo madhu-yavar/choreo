@@ -1,0 +1,52 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: copy-inetuned-model-optimized
+  namespace: z-grid
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: model-copier
+        image: busybox:1.35
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          set -e
+          echo "🚀 Copying Inetuned Gibbrish Model to PVC..."
+
+          # Create model directory structure
+          mkdir -p /model_volume/inetuned_gibbrish_model
+
+          echo "📁 Created model directory at /model_volume/inetuned_gibbrish_model"
+
+          # Note: In a real deployment, you would:
+          # 1. Upload your model files to a container registry
+          # 2. Use kubectl cp to copy from local
+          # 3. Or use a ConfigMap/Secret for small files
+
+          echo "✅ Model directory structure ready"
+          echo "📍 Model files should be copied to: /model_volume/inetuned_gibbrish_model/"
+          echo "📋 Required files:"
+          echo "   - config.json"
+          echo "   - model.safetensors"
+          echo "   - tokenizer.json"
+          echo "   - vocab.txt"
+          echo "   - tokenizer_config.json"
+          echo "   - special_tokens_map.json"
+
+          # List the directory structure
+          ls -la /model_volume/
+          ls -la /model_volume/inetuned_gibbrish_model/ || echo "Directory exists but empty - ready for model files"
+
+          echo "🎯 PVC is ready for model files!"
+        volumeMounts:
+        - name: model-volume
+          mountPath: /model_volume
+      volumes:
+      - name: model-volume
+        persistentVolumeClaim:
+          claimName: gibberish-model-pvc
+  backoffLimit: 3
+  ttlSecondsFinished: 600

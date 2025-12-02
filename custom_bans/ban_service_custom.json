@@ -1,0 +1,30 @@
+[
+  {
+    "pattern": "Microsoft",
+    "type": "literal",
+    "category": "COMPETITOR",
+    "severity": 3,
+    "fuzzy": null
+  },
+  {
+    "pattern": "Apple",
+    "type": "literal",
+    "category": "COMPETITOR",
+    "severity": 3,
+    "fuzzy": null
+  },
+  {
+    "pattern": "Google",
+    "type": "literal",
+    "category": "COMPETITOR",
+    "severity": 3,
+    "fuzzy": null
+  },
+  {
+    "pattern": "Amazon",
+    "type": "literal",
+    "category": "COMPETITOR",
+    "severity": 3,
+    "fuzzy": null
+  }
+]

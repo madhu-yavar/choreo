@@ -1,0 +1,119 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jailbreak-distilbert-trained
+  namespace: z-grid
+  labels:
+    app: jailbreak-distilbert-trained
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jailbreak-distilbert-trained
+  template:
+    metadata:
+      labels:
+        app: jailbreak-distilbert-trained
+    spec:
+      containers:
+      - name: trained-detector
+        image: python:3.9-slim
+        ports:
+        - containerPort: 8002
+        env:
+        - name: MODEL_PATH
+          value: "/model_volume"
+        volumeMounts:
+        - name: model-volume
+          mountPath: /model_volume
+          readOnly: true
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          echo "🚀 Starting trained DistilBERT jailbreak detection service (97.6% accuracy)"
+          pip install torch transformers flask
+
+          echo "Creating service file..."
+          mkdir -p /app
+          echo "import os" > /app/service.py
+          echo "import torch" >> /app/service.py
+          echo "from flask import Flask, request, jsonify" >> /app/service.py
+          echo "from transformers import AutoTokenizer, AutoModelForSequenceClassification" >> /app/service.py
+          echo "" >> /app/service.py
+          echo "app = Flask(__name__)" >> /app/service.py
+          echo "model = None" >> /app/service.py
+          echo "tokenizer = None" >> /app/service.py
+          echo "" >> /app/service.py
+          echo "def load_model():" >> /app/service.py
+          echo "    global model, tokenizer" >> /app/service.py
+          echo "    try:" >> /app/service.py
+          echo "        model_path = os.getenv('MODEL_PATH', '/model_volume')" >> /app/service.py
+          echo "        print('Loading trained DistilBERT model from: ' + model_path)" >> /app/service.py
+          echo "        tokenizer = AutoTokenizer.from_pretrained(model_path)" >> /app/service.py
+          echo "        model = AutoModelForSequenceClassification.from_pretrained(model_path)" >> /app/service.py
+          echo "        model.eval()" >> /app/service.py
+          echo "        print('✅ Trained DistilBERT model loaded successfully (97.6% accuracy)')" >> /app/service.py
+          echo "        return True" >> /app/service.py
+          echo "    except Exception as e:" >> /app/service.py
+          echo "        print('❌ Failed to load model: ' + str(e))" >> /app/service.py
+          echo "        return False" >> /app/service.py
+          echo "" >> /app/service.py
+          echo "@app.route('/health')" >> /app/service.py
+          echo "def health():" >> /app/service.py
+          echo "    return jsonify({" >> /app/service.py
+          echo "        'status': 'healthy'," >> /app/service.py
+          echo "        'model_loaded': model is not None," >> /app/service.py
+          echo "        'service': 'jailbreak-distilbert-trained'," >> /app/service.py
+          echo "        'accuracy': '97.6%'" >> /app/service.py
+          echo "    })" >> /app/service.py
+          echo "" >> /app/service.py
+          echo "@app.route('/validate', methods=['POST'])" >> /app/service.py
+          echo "def validate():" >> /app/service.py
+          echo "    if model is None:" >> /app/service.py
+          echo "        return jsonify({'error': 'Trained model not loaded'}), 500" >> /app/service.py
+          echo "    try:" >> /app/service.py
+          echo "        data = request.get_json()" >> /app/service.py
+          echo "        text = data.get('text', '')" >> /app/service.py
+          echo "        inputs = tokenizer(text, return_tensors='pt', truncation=True, padding=True)" >> /app/service.py
+          echo "        with torch.no_grad():" >> /app/service.py
+          echo "            outputs = model(**inputs)" >> /app/service.py
+          echo "            probs = torch.softmax(outputs.logits, dim=-1)" >> /app/service.py
+          echo "            jailbreak_prob = probs[0][0].item()" >> /app/service.py
+          echo "        is_jailbreak = jailbreak_prob > 0.8" >> /app/service.py
+          echo "        if is_jailbreak:" >> /app/service.py
+          echo "            return jsonify({" >> /app/service.py
+          echo "                'status': 'blocked'," >> /app/service.py
+          echo "                'confidence': round(jailbreak_prob, 3)," >> /app/service.py
+          echo "                'reason': 'Trained DistilBERT detected jailbreak (97.6% accuracy)'" >> /app/service.py
+          echo "            })" >> /app/service.py
+          echo "        else:" >> /app/service.py
+          echo "            return jsonify({" >> /app/service.py
+          echo "                'status': 'pass'," >> /app/service.py
+          echo "                'confidence': round(1 - jailbreak_prob, 3)," >> /app/service.py
+          echo "                'clean_text': text" >> /app/service.py
+          echo "            })" >> /app/service.py
+          echo "    except Exception as e:" >> /app/service.py
+          echo "        return jsonify({'error': str(e)}), 500" >> /app/service.py
+          echo "" >> /app/service.py
+          echo "if __name__ == '__main__':" >> /app/service.py
+          echo "    if load_model():" >> /app/service.py
+          echo "        app.run(host='0.0.0.0', port=8002)" >> /app/service.py
+          echo "    else:" >> /app/service.py
+          echo "        exit(1)" >> /app/service.py
+
+          cd /app
+          python service.py
+
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+          limits:
+            cpu: 1000m
+            memory: 2Gi
+      volumes:
+      - name: model-volume
+        persistentVolumeClaim:
+          claimName: jailbreak-model-pvc

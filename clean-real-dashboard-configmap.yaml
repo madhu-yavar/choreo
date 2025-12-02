@@ -1,0 +1,532 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: enhanced-realtime-dashboard
+  namespace: z-grid
+data:
+  real_kubernetes_dashboard.py: |
+    """
+    Real Z-Grid Dashboard - Using SQLite Database with Real Data
+    Replaces all fake estimation functions with actual database queries
+    """
+    import os
+    import sqlite3
+    import json
+    import time
+    from datetime import datetime, timedelta
+    from flask import Flask, jsonify
+
+    app = Flask(__name__)
+
+    # Connect to the SQLite database
+    DB_PATH = "/app/database/zgrid_monitoring.db"
+
+    def get_db_connection():
+        """Get database connection"""
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            conn.row_factory = sqlite3.Row
+            return conn
+        except Exception as e:
+            print(f"Database connection error: {e}")
+            return None
+
+    def get_real_service_metrics():
+        """Get REAL metrics from SQLite service_metrics table"""
+        try:
+            conn = get_db_connection()
+            if not conn:
+                return {}
+
+            service_metrics = {}
+
+            # Get the latest metrics per service from service_metrics table
+            query = """
+            WITH latest_metrics AS (
+                SELECT service_name, cpu_usage, memory_usage, timestamp,
+                       request_count, error_count, avg_response_time, status,
+                       ROW_NUMBER() OVER (PARTITION BY service_name ORDER BY timestamp DESC) as rn
+                FROM service_metrics
+                WHERE timestamp > datetime('now', '-1 hour')
+            )
+            SELECT service_name, cpu_usage, memory_usage, timestamp,
+                   request_count, error_count, avg_response_time, status
+            FROM latest_metrics
+            WHERE rn = 1
+            """
+
+            cursor = conn.execute(query)
+            rows = cursor.fetchall()
+
+            for row in rows:
+                service_name = row['service_name']
+                service_metrics[service_name] = {
+                    'service_name': service_name.replace('-', ' ').title(),
+                    'cpu_usage': float(row['cpu_usage']) if row['cpu_usage'] else 0,
+                    'memory_usage': float(row['memory_usage']) if row['memory_usage'] else 0,
+                    'request_count': int(row['request_count']) if row['request_count'] else 0,
+                    'error_count': int(row['error_count']) if row['error_count'] else 0,
+                    'avg_response_time': float(row['avg_response_time']) if row['avg_response_time'] else 100,
+                    'status': row['status'] if row['status'] else 'healthy',
+                    'timestamp': row['timestamp']
+                }
+
+            # If no service_metrics data, fall back to request_history table
+            if not service_metrics:
+                request_query = """
+                SELECT service_name,
+                       COUNT(*) as total_requests,
+                       SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) as error_count,
+                       ROUND(AVG(response_time), 2) as avg_response_time,
+                       MAX(timestamp) as last_request_time
+                FROM request_history
+                WHERE timestamp > datetime('now', '-1 hour')
+                GROUP BY service_name
+                """
+
+                cursor = conn.execute(request_query)
+                request_rows = cursor.fetchall()
+
+                for row in request_rows:
+                    service_name = row['service_name']
+                    service_metrics[service_name] = {
+                        'service_name': service_name.replace('-', ' ').title(),
+                        'cpu_usage': 0,  # Not available from request_history
+                        'memory_usage': 0,  # Not available from request_history
+                        'request_count': int(row['total_requests']) if row['total_requests'] else 0,
+                        'error_count': int(row['error_count']) if row['error_count'] else 0,
+                        'avg_response_time': float(row['avg_response_time']) if row['avg_response_time'] else 100,
+                        'status': 'active',
+                        'timestamp': row['last_request_time']
+                    }
+
+            conn.close()
+            return service_metrics
+
+        except Exception as e:
+            print(f"Error getting real service metrics: {e}")
+            return {}
+
+    def calculate_derived_metrics(service_metrics):
+        """Calculate derived metrics from real data"""
+        if not service_metrics:
+            return {
+                'total_requests': 0,
+                'total_errors': 0,
+                'total_cost_per_hour': 0,
+                'total_cost_per_day': 0,
+                'total_cost_per_month': 0,
+                'avg_response_time': 0,
+                'overall_error_rate': 0,
+                'total_services': 0,
+                'healthy_services': 0,
+                'avg_cpu_usage': 0,
+                'avg_memory_usage': 0,
+                'last_updated': datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')
+            }
+
+        total_requests = sum(metrics['request_count'] for metrics in service_metrics.values())
+        total_errors = sum(metrics['error_count'] for metrics in service_metrics.values())
+        total_services = len(service_metrics)
+        healthy_services = len([m for m in service_metrics.values() if m.get('status') == 'healthy'])
+
+        # Calculate weighted average response time
+        avg_response_time = 0
+        if total_requests > 0:
+            weighted_response_time = sum(
+                metrics['avg_response_time'] * metrics['request_count']
+                for metrics in service_metrics.values()
+            )
+            avg_response_time = weighted_response_time / total_requests
+
+        overall_error_rate = (total_errors / total_requests * 100) if total_requests > 0 else 0
+        avg_cpu_usage = sum(metrics['cpu_usage'] for metrics in service_metrics.values()) / total_services if total_services > 0 else 0
+        avg_memory_usage = sum(metrics['memory_usage'] for metrics in service_metrics.values()) / total_services if total_services > 0 else 0
+
+        # Realistic cost calculation
+        total_cpu_cores = sum(metrics['cpu_usage'] / 1000 for metrics in service_metrics.values())
+        total_memory_gb = sum(metrics['memory_usage'] / 1024 for metrics in service_metrics.values())
+        cpu_cost_per_hour = total_cpu_cores * 0.01  # $0.01 per core per hour
+        memory_cost_per_hour = total_memory_gb * 0.001  # $0.001 per GB per hour
+        infrastructure_cost = total_services * 0.005  # $0.005 per service per hour
+
+        total_cost_per_hour = cpu_cost_per_hour + memory_cost_per_hour + infrastructure_cost
+
+        return {
+            'total_requests': total_requests,
+            'total_errors': total_errors,
+            'total_cost_per_hour': total_cost_per_hour,
+            'total_cost_per_day': total_cost_per_hour * 24,
+            'total_cost_per_month': total_cost_per_hour * 24 * 30,
+            'avg_response_time': avg_response_time,
+            'overall_error_rate': overall_error_rate,
+            'total_services': total_services,
+            'healthy_services': healthy_services,
+            'avg_cpu_usage': avg_cpu_usage,
+            'avg_memory_usage': avg_memory_usage,
+            'last_updated': datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')
+        }
+
+    @app.route('/')
+    def index():
+        """Main dashboard endpoint with real SQLite data"""
+        try:
+            service_metrics_data = get_real_service_metrics()
+            derived_metrics = calculate_derived_metrics(service_metrics_data)
+
+            # Generate service table rows from REAL data
+            service_rows = ""
+            for service_key, metrics in service_metrics_data.items():
+                error_rate = (metrics['error_count'] / metrics['request_count'] * 100) if metrics['request_count'] > 0 else 0
+
+                # Determine status based on real data
+                if metrics['error_count'] > 0:
+                    status_class = 'status-unhealthy'
+                    status_display = metrics['status']
+                elif metrics['request_count'] == 0:
+                    status_class = 'status-warning'
+                    status_display = 'no_requests'
+                else:
+                    status_class = 'status-healthy'
+                    status_display = 'healthy'
+
+                service_rows += f"""
+                                <tr>
+                                    <td>{metrics['service_name']}</td>
+                                    <td><span class="{status_class}">{status_display}</span></td>
+                                    <td>{metrics['request_count']:,}</td>
+                                    <td>{metrics['error_count']}</td>
+                                    <td>{metrics['avg_response_time']:.0f}ms</td>
+                                    <td>{metrics['cpu_usage']:.1f}%</td>
+                                    <td>{metrics['memory_usage']:.1f}%</td>
+                                    <td>${(metrics['cpu_usage']/100000 * 0.01 + metrics['memory_usage']/1024/1024 * 0.001):.3f}</td>
+                                </tr>"""
+
+            return f"""<!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Z-Grid Real Dashboard - SQLite Database</title>
+                <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+                <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+                <style>
+                    * {{
+                        margin: 0;
+                        padding: 0;
+                        box-sizing: border-box;
+                    }}
+                    body {{
+                        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+                        background: linear-gradient(135deg, #faf5ff 0%, #f0f4ff 50%, #faf5ff 100%);
+                        color: #1a1f36;
+                        line-height: 1.6;
+                        min-height: 100vh;
+                    }}
+                    .container {{
+                        max-width: 1400px;
+                        margin: 0 auto;
+                        padding: 32px 24px;
+                    }}
+                    .header {{
+                        background: linear-gradient(135deg, #1e40af 0%, #3b82f6 50%, #2563eb 100%);
+                        border-radius: 16px;
+                        padding: 32px;
+                        margin-bottom: 32px;
+                        box-shadow: 0 20px 25px -5px rgba(30, 64, 175, 0.15), 0 10px 10px -5px rgba(30, 64, 175, 0.04);
+                        position: relative;
+                        overflow: hidden;
+                    }}
+                    .header-content {{
+                        position: relative;
+                        z-index: 1;
+                    }}
+                    .header h1 {{
+                        font-size: 36px;
+                        font-weight: 700;
+                        color: #ffffff;
+                        margin-bottom: 12px;
+                        letter-spacing: -0.5px;
+                        text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                    }}
+                    .status-container {{
+                        display: flex;
+                        align-items: center;
+                        gap: 20px;
+                        flex-wrap: wrap;
+                    }}
+                    .status {{
+                        display: inline-flex;
+                        align-items: center;
+                        gap: 8px;
+                        padding: 8px 16px;
+                        background: rgba(255, 255, 255, 0.25);
+                        color: #ffffff;
+                        border-radius: 8px;
+                        font-size: 14px;
+                        font-weight: 600;
+                        backdrop-filter: blur(10px);
+                        border: 1px solid rgba(255, 255, 255, 0.2);
+                    }}
+                    .status.live::before {{
+                        content: '';
+                        width: 8px;
+                        height: 8px;
+                        background: #10b981;
+                        border-radius: 50%;
+                        animation: pulse 2s infinite;
+                        box-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+                    }}
+                    @keyframes pulse {{
+                        0%, 100% {{ opacity: 1; }}
+                        50% {{ opacity: 0.6; }}
+                    }}
+                    .meta {{
+                        color: rgba(255, 255, 255, 0.9);
+                        font-size: 14px;
+                        margin-top: 12px;
+                        font-weight: 500;
+                    }}
+                    .stats-grid {{
+                        display: grid;
+                        grid-template-columns: repeat(6, 1fr);
+                        gap: 16px;
+                        margin-bottom: 32px;
+                    }}
+                    .stat-card {{
+                        background: rgba(255, 255, 255, 0.9);
+                        backdrop-filter: blur(20px);
+                        border: 1px solid rgba(30, 64, 175, 0.1);
+                        border-radius: 16px;
+                        padding: 16px;
+                        text-align: center;
+                        box-shadow: 0 10px 15px -3px rgba(30, 64, 175, 0.1), 0 4px 6px -2px rgba(30, 64, 175, 0.05);
+                        transition: all 0.3s ease;
+                        position: relative;
+                        overflow: hidden;
+                    }}
+                    .stat-card::before {{
+                        content: '';
+                        position: absolute;
+                        top: 0;
+                        left: 0;
+                        right: 0;
+                        height: 3px;
+                        background: linear-gradient(90deg, #1e40af, #3b82f6, #2563eb);
+                    }}
+                    .stat-card:hover {{
+                        transform: translateY(-2px);
+                        box-shadow: 0 20px 25px -5px rgba(30, 64, 175, 0.15), 0 10px 10px -5px rgba(30, 64, 175, 0.04);
+                    }}
+                    .stat-value {{
+                        font-size: 36px;
+                        font-weight: 800;
+                        background: linear-gradient(135deg, #1e40af, #3b82f6);
+                        -webkit-background-clip: text;
+                        -webkit-text-fill-color: transparent;
+                        background-clip: text;
+                        margin-bottom: 8px;
+                        line-height: 1;
+                    }}
+                    .stat-label {{
+                        font-size: 13px;
+                        color: #6b7280;
+                        text-transform: uppercase;
+                        letter-spacing: 0.8px;
+                        font-weight: 600;
+                    }}
+                    .table-card {{
+                        background: rgba(255, 255, 255, 0.95);
+                        backdrop-filter: blur(20px);
+                        border: 1px solid rgba(30, 64, 175, 0.1);
+                        border-radius: 16px;
+                        box-shadow: 0 10px 15px -3px rgba(30, 64, 175, 0.1), 0 4px 6px -2px rgba(30, 64, 175, 0.05);
+                        margin-bottom: 32px;
+                        overflow: hidden;
+                    }}
+                    .table-header {{
+                        padding: 24px;
+                        background: linear-gradient(135deg, rgba(30, 64, 175, 0.05), rgba(59, 130, 246, 0.05));
+                        border-bottom: 1px solid rgba(30, 64, 175, 0.1);
+                    }}
+                    .table-title {{
+                        font-size: 20px;
+                        font-weight: 600;
+                        color: #1a1f36;
+                    }}
+                    .table-description {{
+                        font-size: 14px;
+                        color: #6b7280;
+                        margin-top: 4px;
+                    }}
+                    table {{
+                        width: 100%;
+                        border-collapse: collapse;
+                    }}
+                    th, td {{
+                        padding: 16px;
+                        text-align: left;
+                        border-bottom: 1px solid rgba(30, 64, 175, 0.1);
+                    }}
+                    th {{
+                        background: rgba(30, 64, 175, 0.02);
+                        font-weight: 600;
+                        font-size: 13px;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                        color: #1a1f36;
+                    }}
+                    .status-healthy {{
+                        color: #059669;
+                        font-weight: 600;
+                    }}
+                    .status-unhealthy {{
+                        color: #dc2626;
+                        font-weight: 600;
+                    }}
+                    .status-warning {{
+                        color: #d97706;
+                        font-weight: 600;
+                    }}
+                    .refresh-info {{
+                        text-align: center;
+                        margin-top: 16px;
+                        font-size: 12px;
+                        color: #6b7280;
+                    }}
+                    .real-data-badge {{
+                        display: inline-block;
+                        background: linear-gradient(135deg, #1e40af, #3b82f6);
+                        color: white;
+                        padding: 4px 8px;
+                        border-radius: 4px;
+                        font-size: 11px;
+                        font-weight: 600;
+                        margin-left: 8px;
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <div class="header-content">
+                            <h1>Z-Grid Real Monitor <span class="real-data-badge">SQLITE DATABASE</span></h1>
+                            <div class="status-container">
+                                <div class="status live">LIVE DATA</div>
+                                <div class="status">Azure Kubernetes Cluster</div>
+                            </div>
+                            <div class="meta">
+                                Real metrics from SQLite database • Tables: service_metrics, request_history •
+                                Last updated: {derived_metrics['last_updated']}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-value">{derived_metrics['total_requests']:,}</div>
+                            <div class="stat-label">Total Requests</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">{derived_metrics['total_errors']:,}</div>
+                            <div class="stat-label">Total Errors</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">{derived_metrics['avg_response_time']:.0f}ms</div>
+                            <div class="stat-label">Avg Response</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">{derived_metrics['total_services']}</div>
+                            <div class="stat-label">Active Services</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">{derived_metrics['avg_cpu_usage']:.1f}%</div>
+                            <div class="stat-label">Avg CPU</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">{derived_metrics['avg_memory_usage']:.1f}%</div>
+                            <div class="stat-label">Avg Memory</div>
+                        </div>
+                    </div>
+
+                    <div class="table-card">
+                        <div class="table-header">
+                            <div class="table-title">Real Service Performance Metrics</div>
+                            <div class="table-description">Data from Azure K8s SQLite database service_metrics table</div>
+                        </div>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Service</th>
+                                    <th>Status</th>
+                                    <th>Requests (1h)</th>
+                                    <th>Errors (1h)</th>
+                                    <th>Avg Response</th>
+                                    <th>CPU Usage</th>
+                                    <th>Memory Usage</th>
+                                    <th>Cost/Hour</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {service_rows}
+                            </tbody>
+                        </table>
+                        <div class="refresh-info">
+                            Real-time data from SQLite database • Auto-refresh every 30 seconds •
+                            Collected by Log Collector CronJob (every 2 minutes)
+                        </div>
+                    </div>
+                </div>
+
+                <script>
+                    // Auto-refresh every 30 seconds
+                    setTimeout(() => {{
+                        location.reload();
+                    }}, 30000);
+                </script>
+            </body>
+            </html>"""
+
+        except Exception as e:
+            return f"""
+            <html>
+            <head><title>Database Error</title></head>
+            <body style="font-family: Arial, sans-serif; padding: 40px;">
+                <h1 style="color: #dc2626;">Dashboard Error</h1>
+                <p><strong>Error:</strong> {str(e)}</p>
+                <p><strong>Database Path:</strong> {DB_PATH}</p>
+                <p>Please check:</p>
+                <ul>
+                    <li>SQLite database is accessible</li>
+                    <li>service_metrics and request_history tables exist</li>
+                    <li>Recent data is available</li>
+                </ul>
+            </body>
+            </html>
+            """
+
+    @app.route('/api/metrics')
+    def api_metrics():
+        """API endpoint for real metrics"""
+        try:
+            service_metrics = get_real_service_metrics()
+            derived_metrics = calculate_derived_metrics(service_metrics)
+
+            return jsonify({
+                'service_metrics': service_metrics,
+                'derived_metrics': derived_metrics,
+                'data_source': 'SQLite Database',
+                'database_path': DB_PATH,
+                'tables': ['service_metrics', 'request_history'],
+                'last_updated': datetime.now().isoformat(),
+                'data_collection': 'Log Collector CronJob (every 2 minutes)'
+            })
+        except Exception as e:
+            return jsonify({
+                'error': str(e),
+                'data_source': 'SQLite Database (Error)',
+                'database_path': DB_PATH
+            }), 500
+
+    if __name__ == '__main__':
+        app.run(host='0.0.0.0', port=5000, debug=True)

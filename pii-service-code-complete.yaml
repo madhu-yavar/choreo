@@ -1,0 +1,852 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pii-service-code
+  namespace: z-grid
+data:
+  app.py: |
+    import os, json
+    from pathlib import Path
+    from typing import List, Dict, Any, Optional
+
+    from fastapi import FastAPI, Header, HTTPException, Depends
+    from pydantic import BaseModel
+    from dotenv import load_dotenv
+    from fastapi.middleware.cors import CORSMiddleware
+
+    # Load .env next to this file
+    load_dotenv(dotenv_path=Path(__file__).parent / ".env", override=True)
+
+    import custom_config
+    import importlib
+
+    import pii_gliner; GlinerDetector = pii_gliner.GlinerDetector
+    import pii_presidio; analyze_presidio = pii_presidio.analyze_presidio; anonymize_presidio = pii_presidio.anonymize_presidio
+    import utils; to_entity_dict = utils.to_entity_dict; merge_spans = utils.merge_spans; apply_redactions = utils.apply_redactions; is_generic_preface_span = utils.is_generic_preface_span; is_valid_entity = utils.is_valid_entity
+
+    # Admin API Keys
+    _ADMIN_API_KEYS = set(k.strip() for k in (os.getenv("PII_ADMIN_API_KEYS", "")).split(",") if k.strip())
+
+    def require_admin_key(
+        x_api_key: Optional[str] = Header(default=None),
+        authorization: Optional[str] = Header(default=None),
+    ):
+        # If no admin keys configured, auth is disabled (useful for local/dev)
+        if not _ADMIN_API_KEYS:
+            return
+        token = x_api_key
+        if not token and authorization and authorization.lower().startswith("bearer "):
+            token = authorization.split(" ", 1)[1].strip()
+        if not token or token not in _ADMIN_API_KEYS:
+            raise HTTPException(status_code=401, detail="Admin access required")
+
+    app = FastAPI(title="PII Protection Service", version="1.1.0")
+
+    # ----------------------------- Enhanced Recognizers Startup -----------------------------
+    @app.on_event("startup")
+    async def reload_enhanced_recognizers():
+        """Reload enhanced recognizers and reset analyzer cache on startup."""
+        try:
+            print("Initializing enhanced PII recognizers...")
+            enhanced_recognizers_module = importlib.import_module("enhanced_recognizers")
+            if hasattr(enhanced_recognizers_module, "load_custom_recognizers"):
+                enhanced_recognizers_module.load_custom_recognizers()
+                print("Enhanced recognizers loaded successfully")
+        except ImportError as e:
+            print(f"Enhanced recognizers module not found: {e}")
+        except Exception as e:
+            print(f"Error loading enhanced recognizers: {e}")
+
+    # ----------------------------- CORS -----------------------------
+    def parse_cors_origins():
+        origins_str = os.getenv("CORS_ALLOWED_ORIGINS", "")
+        origins = []
+        if origins_str:
+            origins = [origin.strip() for origin in origins_str.split(",") if origin.strip()]
+        # Add common development origins if not present
+        dev_origins = ["http://localhost:5173", "http://localhost:3000"]
+        for dev_origin in dev_origins:
+            if dev_origin not in origins:
+                origins.append(dev_origin)
+        print(f"Final CORS allow_origins: {origins}")
+        return origins
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=parse_cors_origins(),
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # ----------------------------- API Keys -----------------------------
+    # Regular API Keys (for /validate)
+    _API_KEYS = set(k.strip() for k in (os.getenv("PII_API_KEYS", "")).split(",") if k.strip())
+
+    def require_api_key(
+        x_api_key: Optional[str] = Header(default=None),
+        authorization: Optional[str] = Header(default=None),
+    ):
+        # If no API keys configured, auth is disabled (useful for local/dev)
+        if not _API_KEYS:
+            return
+        token = x_api_key
+        if not token and authorization and authorization.lower().startswith("bearer "):
+            token = authorization.split(" ", 1)[1].strip()
+        if not token or token not in _API_KEYS:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
+    # ----------------------------- Models -----------------------------
+    class AnalyzeRequest(BaseModel):
+        text: str
+        language: Optional[str] = "en"
+        custom_placeholders: Optional[Dict[str, str]] = None
+        custom_thresholds: Optional[Dict[str, float]] = None
+        explain: Optional[bool] = False
+
+    class AnalyzeResponse(BaseModel):
+        pii_found: bool
+        entities: List[Dict[str, Any]]
+        anonymized_text: Optional[str] = None
+        explain_result: Optional[Dict[str, Any]] = None
+
+    class CustomEntityRequest(BaseModel):
+        entity_type: str
+        patterns: List[str]
+        description: Optional[str] = None
+    class CustomEntityResponse(BaseModel):
+        success: bool
+        message: str
+
+    # ----------------------------- Dependencies -----------------------------
+    # Initialize GLiNER detector globally
+    print("Initializing GLiNER detector...")
+    gliner_detector = GlinerDetector()
+
+    # ----------------------------- Health Check -----------------------------
+    @app.get("/health", response_model=Dict[str, Any])
+    async def health_check():
+        """Health check endpoint that returns service status."""
+        return {
+            "ok": True,
+            "gliner": {
+                "loaded": gliner_detector.model is not None,
+                "labels": gliner_detector.labels,
+                "threshold": gliner_detector.threshold,
+                "model_dir": gliner_detector.model_path,
+                "model_id": os.getenv("GLINER_MODEL", "urchade/gliner_small-v2.1"),
+            },
+            "patterns": [],  # TODO: Add pattern registry
+            "entities": os.getenv("ENTITIES", "").split(",") if os.getenv("ENTITIES") else []
+        }
+
+    # ----------------------------- Main API -----------------------------
+    @app.post("/validate", response_model=AnalyzeResponse)
+    async def validate_pii(request: AnalyzeRequest, _=Depends(require_api_key)):
+        """
+        Main endpoint to detect and optionally anonymize PII in text.
+        Supports both Presidio and GLiNER for comprehensive coverage.
+        """
+        try:
+            # Initialize custom configurations
+            custom_placeholders = request.custom_placeholders or {}
+            custom_thresholds = request.custom_thresholds or {}
+
+            print(f"Processing text (length={len(request.text)}): {request.text[:100]}...")
+
+            # Run both Presidio and GLiNER analysis
+            presidio_results = analyze_presidio(request.text, request.language, custom_placeholders, custom_thresholds)
+
+            # GLiNER detection for PERSON/LOCATION (if available)
+            gliner_results = []
+            if gliner_detector.model is not None:
+                # Convert to lowercase for GLiNER compatibility
+                gliner_labels = [label.lower() for label in gliner_detector.labels]
+                gliner_results = gliner_detector.detect(request.text, labels=gliner_labels)
+
+                # Map GLiNER results back to Presidio entity types
+                for entity in gliner_results:
+                    label = entity.get("label", "").upper()
+                    if label == "PERSON":
+                        entity["label"] = "PERSON"
+                    elif label == "LOCATION":
+                        entity["label"] = "LOCATION"
+
+            print(f"Presidio found {len(presidio_results)} entities, GLiNER found {len(gliner_results)} entities")
+
+            # Convert all results to standardized format
+            entity_dicts = []
+            for r in presidio_results:
+                entity_dicts.append(to_entity_dict(r, "presidio"))
+
+            for r in gliner_results:
+                entity_dicts.append(to_entity_dict(r, "gliner"))
+
+            # Merge and filter entities
+            if entity_dicts:
+                merged = merge_spans(entity_dicts)
+                filtered = [e for e in merged if is_valid_entity(e["text"], e["type"])]
+                generic_filtered = [e for e in filtered if not is_generic_preface_span(e["text"], request.text)]
+                final_entities = sorted(generic_filtered, key=lambda e: e["start"])
+            else:
+                final_entities = []
+
+            # Apply redactions if requested
+            anonymized_text = None
+            if final_entities:
+                anonymized_text = apply_redactions(request.text, final_entities, custom_placeholders)
+
+            response_data = {
+                "pii_found": len(final_entities) > 0,
+                "entities": final_entities,
+                "anonymized_text": anonymized_text
+            }
+
+            # Add explanation if requested
+            if request.explain:
+                response_data["explain_result"] = {
+                    "presidio_count": len(presidio_results),
+                    "gliner_count": len(gliner_results),
+                    "before_merge": len(entity_dicts),
+                    "after_merge": len(final_entities) if final_entities else 0,
+                    "gliner_available": gliner_detector.model is not None
+                }
+
+            print(f"Final result: {len(final_entities)} entities detected, PII found: {response_data['pii_found']}")
+            return response_data
+
+        except Exception as e:
+            print(f"Error processing request: {e}")
+            import traceback
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+    # ----------------------------- Admin APIs -----------------------------
+    @app.post("/admin/entities", response_model=CustomEntityResponse, dependencies=[Depends(require_admin_key)])
+    async def add_custom_entity(request: CustomEntityRequest):
+        """Add a custom entity pattern for PII detection."""
+        try:
+            # Load existing custom entities
+            custom_entities = custom_config.load_custom_entities()
+
+            # Create new entity
+            new_entity = {
+                "type": request.entity_type,
+                "patterns": request.patterns,
+                "description": request.description or f"Custom entity for {request.entity_type}",
+                "created_at": os.getenv("CREATED_AT", "now"),
+                "enabled": True
+            }
+
+            # Add to existing entities
+            custom_entities.append(new_entity)
+            custom_config.save_custom_entities(custom_entities)
+
+            return CustomEntityResponse(
+                success=True,
+                message=f"Successfully added custom entity {request.entity_type} with {len(request.patterns)} patterns"
+            )
+
+        except Exception as e:
+            return CustomEntityResponse(
+                success=False,
+                message=f"Failed to add custom entity: {str(e)}"
+            )
+
+    @app.delete("/admin/entities/{entity_type}", response_model=CustomEntityResponse, dependencies=[Depends(require_admin_key)])
+    async def delete_custom_entity(entity_type: str):
+        """Delete a custom entity pattern."""
+        try:
+            # Load existing custom entities
+            custom_entities = custom_config.load_custom_entities()
+
+            # Find and remove the entity
+            original_count = len(custom_entities)
+            custom_entities = [e for e in custom_entities if e["type"] != entity_type]
+            removed_count = original_count - len(custom_entities)
+
+            if removed_count == 0:
+                return CustomEntityResponse(
+                    success=False,
+                    message=f"Custom entity {entity_type} not found"
+                )
+
+            # Save updated entities
+            custom_config.save_custom_entities(custom_entities)
+
+            return CustomEntityResponse(
+                success=True,
+                message=f"Successfully deleted custom entity {entity_type}"
+            )
+
+        except Exception as e:
+            return CustomEntityResponse(
+                success=False,
+                message=f"Failed to delete custom entity: {str(e)}"
+            )
+
+    @app.get("/admin/entities", response_model=List[Dict[str, Any]], dependencies=[Depends(require_admin_key)])
+    async def list_custom_entities():
+        """List all custom entity patterns."""
+        try:
+            custom_entities = custom_config.load_custom_entities()
+            return custom_entities
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to load custom entities: {str(e)}")
+
+    # ----------------------------- Info Endpoint -----------------------------
+    @app.get("/info")
+    async def get_service_info():
+        """Get service information and available entity types."""
+        return {
+            "service": "PII Protection Service",
+            "version": "1.1.0",
+            "capabilities": {
+                "presidio": True,
+                "gliner": gliner_detector.model is not None,
+                "custom_entities": True,
+                "custom_placeholders": True
+            },
+            "supported_entities": os.getenv("ENTITIES", "").split(",") if os.getenv("ENTITIES") else [],
+            "gliner_config": {
+                "model": os.getenv("GLINER_MODEL", "urchade/gliner_small-v2.1"),
+                "labels": gliner_detector.labels,
+                "threshold": gliner_detector.threshold
+            }
+        }
+
+  pii_gliner.py: |
+    import os
+    from pathlib import Path
+    from typing import List, Dict, Any, Optional
+
+    # Handle GLiNER import gracefully for K8 environment
+    try:
+        from gliner import GLiNER
+        GLINER_AVAILABLE = True
+    except ImportError as e:
+        print(f"[GLiNER] Import failed: {e}")
+        print(f"[GLiNER] GLiNER not available, using fallback mode")
+        GLiNER = None
+        GLINER_AVAILABLE = False
+
+    class GlinerDetector:
+        def __init__(self):
+            base = Path(__file__).parent
+            local_dir = os.getenv("GLINER_LOCAL_DIR")
+            if local_dir and not os.path.isabs(local_dir):
+                local_dir = str((base / local_dir).resolve())
+
+            model_id  = os.getenv("GLINER_MODEL", "urchade/gliner_small-v2.1")
+            offline = os.getenv("HF_HUB_OFFLINE", "0").lower() in ("1","true","yes")
+
+            self.model = None
+            self.labels = []
+            self.threshold = 0.60
+            self.model_path = None
+            self.error = None
+
+            # Only try to initialize GLiNER if it's available
+            if not GLINER_AVAILABLE:
+                self.error = "GLiNER not installed or import failed"
+                print(f"[GLiNER] WARNING: GLiNER not available - PERSON/LOCATION detection disabled")
+                return
+
+            try:
+                print(f"[GLiNER] Initializing with model_id={model_id}, local_dir={local_dir}, offline={offline}")
+
+                # Try to load from local directory first
+                if local_dir and Path(local_dir).is_dir():
+                    print(f"[GLiNER] Loading from local directory: {local_dir}")
+                    # Check for model files
+                    model_files = ["pytorch_model.bin", "model.safetensors", "config.json"]
+                    existing_files = []
+                    for f in model_files:
+                        if Path(local_dir).joinpath(f).exists():
+                            existing_files.append(f)
+
+                    if not existing_files:
+                        raise RuntimeError(f"No model files found in {local_dir}. Expected: {model_files}")
+
+                    print(f"[GLiNER] Found model files: {existing_files}")
+                    self.model = GLiNER.from_pretrained(local_dir)
+                    self.model_path = local_dir
+                else:
+                    # Download from HuggingFace
+                    if offline:
+                        raise RuntimeError(
+                            "HF_HUB_OFFLINE=1 but GLINER_LOCAL_DIR is invalid. "
+                            "Set GLINER_LOCAL_DIR to a downloaded model directory."
+                        )
+                    print(f"[GLiNER] Downloading from HuggingFace: {model_id}")
+                    self.model = GLiNER.from_pretrained(model_id)
+                    self.model_path = model_id
+
+                # Initialize labels and threshold - OPTIMIZED FOR REDUCED NOISE
+                labels = os.getenv("GLINER_LABELS", "person,location")  # Removed organization to reduce false positives
+                self.labels = [s.strip().lower() for s in labels.split(",") if s.strip()]
+                self.threshold = float(os.getenv("GLINER_THRESHOLD", "0.80"))  # Increased from 0.60 to reduce noise
+
+                print(f"[GLiNER] Successfully initialized")
+                print(f"[GLiNER] Model: {self.model_path}")
+                print(f"[GLiNER] Labels: {self.labels}")
+                print(f"[GLiNER] Threshold: {self.threshold}")
+
+            except Exception as e:
+                self.error = str(e)
+                print(f"[GLiNER] ERROR: Failed to initialize: {e}")
+                print(f"[GLiNER] This means PERSON/LOCATION detection will not work!")
+                # Don't raise the exception - allow the service to continue without GLiNER
+
+        def detect(self, text: str, labels: Optional[List[str]] = None, threshold: Optional[float]=None) -> List[Dict[str, Any]]:
+            if self.model is None:
+                print(f"[GLiNER] WARNING: Model not loaded, cannot detect entities. Error: {self.error}")
+                return []
+
+            lbls = labels or self.labels
+            thr  = threshold if threshold is not None else self.threshold
+            if not lbls or not text.strip():
+                return []
+
+            try:
+                # returns [{start, end, label, score}]
+                entities = self.model.predict_entities(text, labels=lbls, threshold=thr)
+                print(f"[GLiNER] Detected {len(entities)} entities in text: {text[:50]}...")
+                return entities
+            except Exception as e:
+                print(f"[GLiNER] ERROR: Failed to detect entities: {e}")
+                return []
+
+  pii_presidio.py: |
+    import os
+    import json
+    from pathlib import Path
+    from typing import List, Dict, Any, Optional, Tuple
+    from presidio_analyzer import AnalyzerEngine
+    from presidio_anonymizer import AnonymizerEngine
+    from presidio_anonymizer.entities import OperatorConfig
+
+    # Initialize Presidio engines globally
+    analyzer = AnalyzerEngine()
+    anonymizer = AnonymizerEngine()
+
+    def analyze_presidio(text: str, language: str = "en", custom_placeholders: Optional[Dict[str, str]] = None, custom_thresholds: Optional[Dict[str, float]] = None) -> List[Dict[str, Any]]:
+        """Analyze text using Presidio for PII detection."""
+        try:
+            # Load custom entities and thresholds
+            custom_entities = []
+            custom_config_path = Path("custom_configs") / "pii_service_custom_entities.json"
+            if custom_config_path.exists():
+                with open(custom_config_path, 'r') as f:
+                    custom_entities = json.load(f)
+
+            # Apply custom thresholds
+            entity_thresholds = {}
+            if custom_thresholds:
+                entity_thresholds.update(custom_thresholds)
+
+            # Get default entities from environment
+            default_entities_str = os.getenv("ENTITIES", "")
+            default_entities = [e.strip() for e in default_entities_str.split(",") if e.strip()]
+
+            # Combine with custom entities
+            all_entities = default_entities.copy()
+            for custom_entity in custom_entities:
+                if custom_entity.get("enabled", True):
+                    entity_type = custom_entity["type"]
+                    if entity_type not in all_entities:
+                        all_entities.append(entity_type)
+
+            print(f"[Presidio] Analyzing for entities: {all_entities}")
+
+            # Configure anonymizer placeholders
+            anonymizer_config = {}
+            if custom_placeholders:
+                anonymizer_config.update(custom_placeholders)
+
+            # Run analysis
+            results = analyzer.analyze(
+                text=text,
+                language=language,
+                entities=all_entities
+            )
+
+            # Convert to list of dicts
+            entities = []
+            for result in results:
+                entity_type = result.entity_type
+                # Apply custom threshold if available
+                if entity_type in entity_thresholds:
+                    if result.score < entity_thresholds[entity_type]:
+                        continue
+
+                entities.append({
+                    "type": entity_type,
+                    "start": result.start,
+                    "end": result.end,
+                    "score": result.score,
+                    "text": text[result.start:result.end],
+                    "source": "presidio"
+                })
+
+            print(f"[Presidio] Found {len(entities)} entities")
+            return entities
+
+        except Exception as e:
+            print(f"[Presidio] Error during analysis: {e}")
+            return []
+
+    def anonymize_presidio(text: str, entities: List[Dict[str, Any]], custom_placeholders: Optional[Dict[str, str]] = None) -> str:
+        """Anonymize text using Presidio based on detected entities."""
+        try:
+            # Convert entities to Presidio format
+            presidio_entities = []
+            for entity in entities:
+                presidio_entities.append({
+                    "type": entity["type"],
+                    "start": entity["start"],
+                    "end": entity["end"]
+                })
+
+            # Configure anonymizer with custom placeholders
+            anonymizer_config = {}
+            if custom_placeholders:
+                for entity_type, placeholder in custom_placeholders.items():
+                    anonymizer_config[entity_type] = OperatorConfig(operator_name="replace", new_value=placeholder)
+
+            # Run anonymization
+            result = anonymizer.anonymize(
+                text=text,
+                analyzer_results=presidio_entities,
+                operators=anonymizer_config
+            )
+
+            return result.text
+
+        except Exception as e:
+            print(f"[Presidio] Error during anonymization: {e}")
+            return text  # Return original text if anonymization fails
+
+  utils.py: |
+    import re
+    from typing import List, Dict, Any, Optional, Tuple
+
+    def to_entity_dict(entity: Any, source: str) -> Dict[str, Any]:
+        """Convert entity from Presidio or GLiNER to standardized dict format."""
+        if source == "presidio":
+            return {
+                "type": entity.entity_type,
+                "start": entity.start,
+                "end": entity.end,
+                "score": entity.score,
+                "text": entity.text if hasattr(entity, 'text') else "",
+                "source": source
+            }
+        else:  # GLiNER
+            return {
+                "type": entity.get("label", "").upper(),
+                "start": entity.get("start", 0),
+                "end": entity.get("end", 0),
+                "score": entity.get("score", 0.0),
+                "text": entity.get("text", ""),
+                "source": source
+            }
+
+    def merge_spans(entities: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Merge overlapping entity spans, keeping highest confidence and preferring Presidio."""
+        if not entities:
+            return []
+
+        # Sort by start position, then by source priority (Presidio first), then by score
+        def sort_key(e):
+            source_priority = 0 if e["source"] == "presidio" else 1
+            return (e["start"], source_priority, -e["score"])
+
+        entities.sort(key=sort_key)
+
+        merged = []
+        current = entities[0]
+
+        for next_entity in entities[1:]:
+            # Check for overlap
+            if next_entity["start"] <= current["end"]:
+                # Overlap detected - merge
+                # Prefer higher score, with source priority if scores are equal
+                if (next_entity["score"] > current["score"] or
+                    (next_entity["score"] == current["score"] and
+                     next_entity["source"] == "presidio")):
+                    # Update current to better entity
+                    current["end"] = max(current["end"], next_entity["end"])
+                    current["score"] = next_entity["score"]
+                    current["source"] = next_entity["source"]
+                    current["type"] = next_entity["type"]
+                    current["text"] = next_entity.get("text", current["text"])
+                else:
+                    # Extend current span if needed
+                    current["end"] = max(current["end"], next_entity["end"])
+            else:
+                # No overlap - add current and move to next
+                merged.append(current)
+                current = next_entity
+
+        merged.append(current)
+        return merged
+
+    def apply_redactions(text: str, entities: List[Dict[str, Any]], custom_placeholders: Optional[Dict[str, str]] = None) -> str:
+        """Apply redactions to text based on detected entities."""
+        if not entities:
+            return text
+
+        # Default placeholders
+        default_placeholders = {
+            "EMAIL_ADDRESS": "[EMAIL]",
+            "PHONE_NUMBER": "[PHONE]",
+            "CREDIT_CARD": "[CARD]",
+            "US_SSN": "[SSN]",
+            "US_PASSPORT": "[PASSPORT]",
+            "IP_ADDRESS": "[IP]",
+            "IBAN_CODE": "[IBAN]",
+            "PERSON": "[NAME]",
+            "LOCATION": "[LOCATION]",
+            "ORGANIZATION": "[ORG]",
+            "IN_AADHAAR": "[AADHAAR]",
+            "IN_PAN": "[PAN]",
+            "IN_PASSPORT": "[PASSPORT]",
+            "DATE_TIME": "[DATE]",
+            "DATE": "[DATE]",
+            "TIME": "[TIME]",
+            "MONEY": "[MONEY]",
+            "CURRENCY": "[CURRENCY]",
+            "AMOUNT": "[AMOUNT]",
+            "NRP": "[NRP]",
+            "URL": "[URL]",
+            "DOMAIN_NAME": "[DOMAIN]"
+        }
+
+        # Use custom placeholders if provided
+        placeholders = {**default_placeholders}
+        if custom_placeholders:
+            placeholders.update(custom_placeholders)
+
+        # Sort entities by start position (reverse to avoid index shifting)
+        sorted_entities = sorted(entities, key=lambda e: e["start"], reverse=True)
+
+        result_text = text
+        for entity in sorted_entities:
+            entity_type = entity["type"]
+            placeholder = placeholders.get(entity_type, f"[{entity_type}]")
+
+            # Replace the entity text with placeholder
+            start, end = entity["start"], entity["end"]
+            result_text = result_text[:start] + placeholder + result_text[end:]
+
+        return result_text
+
+    def is_generic_preface_span(entity_text: str, full_text: str) -> bool:
+        """Check if entity is a generic preface span (e.g., "Name:")."""
+        generic_prefaces = [
+            "name", "email", "phone", "address", "ssn", "passport", "id",
+            "credit", "card", "account", "number", "contact", "information"
+        ]
+
+        entity_lower = entity_text.lower().strip()
+        return (entity_lower.endswith(":") or
+                entity_lower in generic_prefaces or
+                entity_lower.startswith("my ") or
+                entity_lower.startswith("your ") or
+                len(entity_text) < 3)
+
+    def is_valid_entity(entity_text: str, entity_type: str) -> bool:
+        """Validate entity text based on entity type."""
+        if not entity_text or not entity_text.strip():
+            return False
+
+        text = entity_text.strip()
+
+        # Email validation
+        if entity_type == "EMAIL_ADDRESS":
+            return "@" in text and "." in text.split("@")[-1]
+
+        # Phone validation (basic)
+        if entity_type == "PHONE_NUMBER":
+            return any(c.isdigit() for c in text) and len(text) >= 7
+
+        # URL validation
+        if entity_type in ["URL", "DOMAIN_NAME"]:
+            return "." in text
+
+        # Credit card validation (basic)
+        if entity_type == "CREDIT_CARD":
+            return any(c.isdigit() for c in text) and len(text) >= 13
+
+        # SSN validation
+        if entity_type == "US_SSN":
+            return any(c.isdigit() for c in text) and len(text) >= 9
+
+        # Name validation (basic - avoid single letters)
+        if entity_type == "PERSON":
+            return len(text) >= 2 and not text.replace("-", "").replace(" ", "").isalpha() == False or len(text.split()) > 1
+
+        # Location validation (basic)
+        if entity_type == "LOCATION":
+            return len(text) >= 2
+
+        # Default validation
+        return len(text) >= 2
+
+  custom_entities.json: |
+    []
+
+  custom_placeholders.json: |
+    {
+      "EMAIL_ADDRESS": "[REDACTED_EMAIL]",
+      "PHONE_NUMBER": "[REDACTED_PHONE]",
+      "PERSON": "[REDACTED_NAME]",
+      "LOCATION": "[REDACTED_LOCATION]",
+      "CREDIT_CARD": "[REDACTED_CARD]",
+      "US_SSN": "[REDACTED_SSN]",
+      "US_PASSPORT": "[REDACTED_PASSPORT]",
+      "IP_ADDRESS": "[REDACTED_IP]",
+      "IBAN_CODE": "[REDACTED_IBAN]",
+      "ORGANIZATION": "[REDACTED_ORG]",
+      "IN_AADHAAR": "[REDACTED_AADHAAR]",
+      "IN_PAN": "[REDACTED_PAN]",
+      "IN_PASSPORT": "[REDACTED_PASSPORT_IN]",
+      "DATE_TIME": "[REDACTED_DATETIME]",
+      "DATE": "[REDACTED_DATE]",
+      "TIME": "[REDACTED_TIME]",
+      "MONEY": "[REDACTED_MONEY]",
+      "CURRENCY": "[REDACTED_CURRENCY]",
+      "AMOUNT": "[REDACTED_AMOUNT]",
+      "NRP": "[REDACTED_NRP]",
+      "URL": "[REDACTED_URL]",
+      "DOMAIN_NAME": "[REDACTED_DOMAIN]"
+    }
+
+  custom_thresholds.json: |
+    {
+      "EMAIL_ADDRESS": 0.8,
+      "PHONE_NUMBER": 0.7,
+      "CREDIT_CARD": 0.9,
+      "US_SSN": 0.95,
+      "US_PASSPORT": 0.9,
+      "IP_ADDRESS": 0.8,
+      "IBAN_CODE": 0.9,
+      "PERSON": 0.85,
+      "LOCATION": 0.8,
+      "ORGANIZATION": 0.7,
+      "IN_AADHAAR": 0.9,
+      "IN_PAN": 0.9,
+      "IN_PASSPORT": 0.9,
+      "DATE_TIME": 0.7,
+      "DATE": 0.7,
+      "TIME": 0.7,
+      "MONEY": 0.8,
+      "CURRENCY": 0.8,
+      "AMOUNT": 0.8,
+      "NRP": 0.8,
+      "URL": 0.9,
+      "DOMAIN_NAME": 0.8
+    }
+
+  custom_config.py: |
+    import json
+    import os
+    from pathlib import Path
+    from typing import List, Dict, Any, Optional
+
+    CUSTOM_PII_DIR = Path("custom_configs")
+    CUSTOM_PII_DIR.mkdir(exist_ok=True)
+
+    def save_custom_entities(custom_entities: List[Dict[str, Any]], service_name: str = "pii_service", blend: bool = True):
+        """Save custom entity definitions to a file"""
+        file_path = CUSTOM_PII_DIR / f"{service_name}_custom_entities.json"
+
+        # Load existing entities if blending is enabled
+        existing_entities = []
+        if blend and file_path.exists():
+            existing_entities = load_custom_entities(service_name)
+
+        # Create a dictionary to track entities by type for deduplication
+        entities_dict = {}
+
+        # Add existing entities first
+        for entity in existing_entities:
+            entities_dict[entity["type"]] = entity
+
+        # Add/update with new entities (new ones override existing ones with same type)
+        for entity in custom_entities:
+            entities_dict[entity["type"]] = entity
+
+        # Convert back to list and save
+        final_entities = list(entities_dict.values())
+
+        with open(file_path, 'w') as f:
+            json.dump(final_entities, f, indent=2)
+
+    def load_custom_entities(service_name: str = "pii_service") -> List[Dict[str, Any]]:
+        """Load custom entity definitions from a file"""
+        file_path = CUSTOM_PII_DIR / f"{service_name}_custom_entities.json"
+        if file_path.exists():
+            with open(file_path, 'r') as f:
+                return json.load(f)
+        return []
+
+    def save_custom_placeholders(custom_placeholders: Dict[str, str], service_name: str = "pii_service", blend: bool = True):
+        """Save custom placeholders to a file"""
+        file_path = CUSTOM_PII_DIR / f"{service_name}_custom_placeholders.json"
+
+        # Load existing placeholders if blending is enabled
+        existing_placeholders = {}
+        if blend and file_path.exists():
+            existing_placeholders = load_custom_placeholders(service_name)
+
+        # Merge placeholders (new ones override existing ones)
+        merged_placeholders = {**existing_placeholders, **custom_placeholders}
+
+        with open(file_path, 'w') as f:
+            json.dump(merged_placeholders, f, indent=2)
+
+    def load_custom_placeholders(service_name: str = "pii_service") -> Dict[str, str]:
+        """Load custom placeholders from a file"""
+        file_path = CUSTOM_PII_DIR / f"{service_name}_custom_placeholders.json"
+        if file_path.exists():
+            with open(file_path, 'r') as f:
+                return json.load(f)
+        return {}
+
+    def save_custom_thresholds(custom_thresholds: Dict[str, float], service_name: str = "pii_service", blend: bool = True):
+        """Save custom entity thresholds to a file"""
+        file_path = CUSTOM_PII_DIR / f"{service_name}_custom_thresholds.json"
+
+        # Load existing thresholds if blending is enabled
+        existing_thresholds = {}
+        if blend and file_path.exists():
+            existing_thresholds = load_custom_thresholds(service_name)
+
+        # Merge thresholds (new ones override existing ones)
+        merged_thresholds = {**existing_thresholds, **custom_thresholds}
+
+        with open(file_path, 'w') as f:
+            json.dump(merged_thresholds, f, indent=2)
+
+    def load_custom_thresholds(service_name: str = "pii_service") -> Dict[str, float]:
+        """Load custom entity thresholds from a file"""
+        file_path = CUSTOM_PII_DIR / f"{service_name}_custom_thresholds.json"
+        if file_path.exists():
+            with open(file_path, 'r') as f:
+                return json.load(f)
+        return {}
+
+    def clear_custom_configs(service_name: str = "pii_service"):
+        """Clear all custom configurations"""
+        files_to_clear = [
+            f"{service_name}_custom_entities.json",
+            f"{service_name}_custom_placeholders.json",
+            f"{service_name}_custom_thresholds.json"
+        ]
+
+        for filename in files_to_clear:
+            file_path = CUSTOM_PII_DIR / filename
+            if file_path.exists():
+                file_path.unlink()

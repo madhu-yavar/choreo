@@ -1,0 +1,316 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pii-service-code-fixed
+  namespace: z-grid
+data:
+  app.py: |
+    import os, json
+    from pathlib import Path
+    from typing import List, Dict, Any, Optional
+
+    from fastapi import FastAPI, Header, HTTPException, Depends
+    from pydantic import BaseModel
+    from dotenv import load_dotenv
+    from fastapi.middleware.cors import CORSMiddleware
+
+    # Load .env next to this file
+    load_dotenv(dotenv_path=Path(__file__).parent / ".env", override=True)
+
+    import custom_config
+    import importlib
+
+    import pii_gliner; GlinerDetector = pii_gliner.GlinerDetector
+    import pii_presidio; analyze_presidio = pii_presidio.analyze_presidio; anonymize_presidio = pii_presidio.anonymize_presidio
+    import utils; to_entity_dict = utils.to_entity_dict; merge_spans = utils.merge_spans; apply_redactions = utils.apply_redactions; is_generic_preface_span = utils.is_generic_preface_span; is_valid_entity = utils.is_valid_entity
+
+    # Admin API Keys
+    _ADMIN_API_KEYS = set(k.strip() for k in (os.getenv("PII_ADMIN_API_KEYS", "")).split(",") if k.strip())
+
+    def require_admin_key(
+        x_api_key: Optional[str] = Header(default=None),
+        authorization: Optional[str] = Header(default=None),
+    ):
+        # If no admin keys configured, auth is disabled (useful for local/dev)
+        if not _ADMIN_API_KEYS:
+            return
+        token = x_api_key
+        if not token and authorization and authorization.lower().startswith("bearer "):
+            token = authorization.split(" ", 1)[1].strip()
+        if not token or token not in _ADMIN_API_KEYS:
+            raise HTTPException(status_code=401, detail="Admin access required")
+
+    app = FastAPI(title="PII Protection Service", version="1.1.0")
+
+    # ----------------------------- Enhanced Recognizers Startup -----------------------------
+    @app.on_event("startup")
+    async def reload_enhanced_recognizers():
+        """Reload enhanced recognizers and reset analyzer cache on startup."""
+        try:
+            print("Initializing enhanced PII recognizers...")
+            enhanced_recognizers_module = importlib.import_module("enhanced_recognizers")
+            if hasattr(enhanced_recognizers_module, "load_custom_recognizers"):
+                enhanced_recognizers_module.load_custom_recognizers()
+                print("Enhanced recognizers loaded successfully")
+        except ImportError as e:
+            print(f"Enhanced recognizers module not found: {e}")
+        except Exception as e:
+            print(f"Error loading enhanced recognizers: {e}")
+
+    # ----------------------------- CORS -----------------------------
+    def parse_cors_origins():
+        origins_str = os.getenv("CORS_ALLOWED_ORIGINS", "")
+        origins = []
+        if origins_str:
+            origins = [origin.strip() for origin in origins_str.split(",") if origin.strip()]
+        # Add common development origins if not present
+        dev_origins = ["http://localhost:5173", "http://localhost:3000"]
+        for dev_origin in dev_origins:
+            if dev_origin not in origins:
+                origins.append(dev_origin)
+        print(f"Final CORS allow_origins: {origins}")
+        return origins
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=parse_cors_origins(),
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # ----------------------------- API Keys -----------------------------
+    # Regular API Keys (for /validate)
+    _API_KEYS = set(k.strip() for k in (os.getenv("PII_API_KEYS", "")).split(",") if k.strip())
+
+    def require_api_key(
+        x_api_key: Optional[str] = Header(default=None),
+        authorization: Optional[str] = Header(default=None),
+    ):
+        # If no API keys configured, auth is disabled (useful for local/dev)
+        if not _API_KEYS:
+            return
+        token = x_api_key
+        if not token and authorization and authorization.lower().startswith("bearer "):
+            token = authorization.split(" ", 1)[1].strip()
+        if not token or token not in _API_KEYS:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
+    # ----------------------------- Models -----------------------------
+    class AnalyzeRequest(BaseModel):
+        text: str
+        language: Optional[str] = "en"
+        custom_placeholders: Optional[Dict[str, str]] = None
+        custom_thresholds: Optional[Dict[str, float]] = None
+        explain: Optional[bool] = False
+
+    class AnalyzeResponse(BaseModel):
+        pii_found: bool
+        entities: List[Dict[str, Any]]
+        anonymized_text: Optional[str] = None
+        explain_result: Optional[Dict[str, Any]] = None
+
+    class CustomEntityRequest(BaseModel):
+        entity_type: str
+        patterns: List[str]
+        description: Optional[str] = None
+    class CustomEntityResponse(BaseModel):
+        success: bool
+        message: str
+
+    # ----------------------------- Dependencies -----------------------------
+    # Initialize GLiNER detector globally
+    print("Initializing GLiNER detector...")
+    gliner_detector = GlinerDetector()
+
+    # ----------------------------- Health Check -----------------------------
+    @app.get("/health", response_model=Dict[str, Any])
+    async def health_check():
+        """Health check endpoint that returns service status."""
+        return {
+            "ok": True,
+            "gliner": {
+                "loaded": gliner_detector.model is not None,
+                "labels": gliner_detector.labels,
+                "threshold": gliner_detector.threshold,
+                "model_dir": gliner_detector.model_path,
+                "model_id": os.getenv("GLINER_MODEL", "urchade/gliner_small-v2.1"),
+            },
+            "patterns": [],  # TODO: Add pattern registry
+            "entities": os.getenv("ENTITIES", "").split(",") if os.getenv("ENTITIES") else []
+        }
+
+    # ----------------------------- Main API -----------------------------
+    @app.post("/validate", response_model=AnalyzeResponse)
+    async def validate_pii(request: AnalyzeRequest, _=Depends(require_api_key)):
+        """
+        Main endpoint to detect and optionally anonymize PII in text.
+        Supports both Presidio and GLiNER for comprehensive coverage.
+        """
+        try:
+            # Initialize custom configurations
+            custom_placeholders = request.custom_placeholders or {}
+            custom_thresholds = request.custom_thresholds or {}
+
+            print(f"Processing text (length={len(request.text)}): {request.text[:100]}...")
+
+            # Run both Presidio and GLiNER analysis
+            presidio_results = analyze_presidio(request.text, request.language, custom_placeholders, custom_thresholds)
+
+            # GLiNER detection for PERSON/LOCATION (if available)
+            gliner_results = []
+            if gliner_detector.model is not None:
+                # Convert to lowercase for GLiNER compatibility
+                gliner_labels = [label.lower() for label in gliner_detector.labels]
+                gliner_results = gliner_detector.detect(request.text, labels=gliner_labels)
+
+                # Map GLiNER results back to Presidio entity types
+                for entity in gliner_results:
+                    label = entity.get("label", "").upper()
+                    if label == "PERSON":
+                        entity["label"] = "PERSON"
+                    elif label == "LOCATION":
+                        entity["label"] = "LOCATION"
+
+            print(f"Presidio found {len(presidio_results)} entities, GLiNER found {len(gliner_results)} entities")
+
+            # Convert all results to standardized format
+            entity_dicts = []
+            for r in presidio_results:
+                entity_dicts.append(to_entity_dict(r, "presidio"))
+
+            for r in gliner_results:
+                entity_dicts.append(to_entity_dict(r, "gliner"))
+
+            # Merge and filter entities
+            if entity_dicts:
+                merged = merge_spans(entity_dicts)
+                filtered = [e for e in merged if is_valid_entity(e["text"], e["type"])]
+                generic_filtered = [e for e in filtered if not is_generic_preface_span(e["text"], request.text)]
+                final_entities = sorted(generic_filtered, key=lambda e: e["start"])
+            else:
+                final_entities = []
+
+            # Apply redactions if requested
+            anonymized_text = None
+            if final_entities:
+                anonymized_text = apply_redactions(request.text, final_entities, custom_placeholders)
+
+            response_data = {
+                "pii_found": len(final_entities) > 0,
+                "entities": final_entities,
+                "anonymized_text": anonymized_text
+            }
+
+            # Add explanation if requested
+            if request.explain:
+                response_data["explain_result"] = {
+                    "presidio_count": len(presidio_results),
+                    "gliner_count": len(gliner_results),
+                    "before_merge": len(entity_dicts),
+                    "after_merge": len(final_entities) if final_entities else 0,
+                    "gliner_available": gliner_detector.model is not None
+                }
+
+            print(f"Final result: {len(final_entities)} entities detected, PII found: {response_data['pii_found']}")
+            return response_data
+
+        except Exception as e:
+            print(f"Error processing request: {e}")
+            import traceback
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+    # ----------------------------- Admin APIs -----------------------------
+    @app.post("/admin/entities", response_model=CustomEntityResponse, dependencies=[Depends(require_admin_key)])
+    async def add_custom_entity(request: CustomEntityRequest):
+        """Add a custom entity pattern for PII detection."""
+        try:
+            # Load existing custom entities
+            custom_entities = custom_config.load_custom_entities()
+
+            # Create new entity
+            new_entity = {
+                "type": request.entity_type,
+                "patterns": request.patterns,
+                "description": request.description or f"Custom entity for {request.entity_type}",
+                "created_at": os.getenv("CREATED_AT", "now"),
+                "enabled": True
+            }
+
+            # Add to existing entities
+            custom_entities.append(new_entity)
+            custom_config.save_custom_entities(custom_entities)
+
+            return CustomEntityResponse(
+                success=True,
+                message=f"Successfully added custom entity {request.entity_type} with {len(request.patterns)} patterns"
+            )
+
+        except Exception as e:
+            return CustomEntityResponse(
+                success=False,
+                message=f"Failed to add custom entity: {str(e)}"
+            )
+
+    @app.delete("/admin/entities/{entity_type}", response_model=CustomEntityResponse, dependencies=[Depends(require_admin_key)])
+    async def delete_custom_entity(entity_type: str):
+        """Delete a custom entity pattern."""
+        try:
+            # Load existing custom entities
+            custom_entities = custom_config.load_custom_entities()
+
+            # Find and remove the entity
+            original_count = len(custom_entities)
+            custom_entities = [e for e in custom_entities if e["type"] != entity_type]
+            removed_count = original_count - len(custom_entities)
+
+            if removed_count == 0:
+                return CustomEntityResponse(
+                    success=False,
+                    message=f"Custom entity {entity_type} not found"
+                )
+
+            # Save updated entities
+            custom_config.save_custom_entities(custom_entities)
+
+            return CustomEntityResponse(
+                success=True,
+                message=f"Successfully deleted custom entity {entity_type}"
+            )
+
+        except Exception as e:
+            return CustomEntityResponse(
+                success=False,
+                message=f"Failed to delete custom entity: {str(e)}"
+            )
+
+    @app.get("/admin/entities", response_model=List[Dict[str, Any]], dependencies=[Depends(require_admin_key)])
+    async def list_custom_entities():
+        """List all custom entity patterns."""
+        try:
+            custom_entities = custom_config.load_custom_entities()
+            return custom_entities
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to load custom entities: {str(e)}")
+
+    # ----------------------------- Info Endpoint -----------------------------
+    @app.get("/info")
+    async def get_service_info():
+        """Get service information and available entity types."""
+        return {
+            "service": "PII Protection Service",
+            "version": "1.1.0",
+            "capabilities": {
+                "presidio": True,
+                "gliner": gliner_detector.model is not None,
+                "custom_entities": True,
+                "custom_placeholders": True
+            },
+            "supported_entities": os.getenv("ENTITIES", "").split(",") if os.getenv("ENTITIES") else [],
+            "gliner_config": {
+                "model": os.getenv("GLINER_MODEL", "urchade/gliner_small-v2.1"),
+                "labels": gliner_detector.labels,
+                "threshold": gliner_detector.threshold
+            }
+        }

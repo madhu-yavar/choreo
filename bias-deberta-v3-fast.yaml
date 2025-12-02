@@ -1,0 +1,174 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bias-deberta-v3
+  namespace: z-grid
+  labels:
+    app: bias-deberta-v3
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bias-deberta-v3
+  template:
+    metadata:
+      labels:
+        app: bias-deberta-v3
+    spec:
+      containers:
+      - name: bias-deberta-v3
+        image: python:3.11-slim
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+
+          # Create app directory first
+          mkdir -p /app
+          cd /app
+
+          echo "🚀 Setting up bias service..."
+
+          # Install minimal dependencies fast
+          pip install --no-cache-dir flask requests transformers torch accelerate 2>/dev/null || \
+          pip install --no-cache-dir flask requests
+
+          # Create a working bias service
+          cat > bias_service.py << 'SERVICE_EOF'
+          from flask import Flask, request, jsonify
+          from datetime import datetime
+          import json
+          import re
+
+          app = Flask(__name__)
+
+          # Simple bias detection based on keywords and patterns
+          BIAS_PATTERNS = {
+              "gender bias": [
+                  r"\b(women|woman|female|girl|ladies?)\s+(can't|cannot|shouldn't|aren't|not)\s+(do|handle|manage|lead|work)",
+                  r"\b(men|man|male|guy|boys?)\s+(are|naturally|better|suited for)\s+(leadership|technical|logic)",
+                  r"\b(gender|sex|male|female)\s+(discrimination|stereotype|bias)"
+              ],
+              "racial bias": [
+                  r"\b(where are you really from|what's your ethnicity|you don't look)\b",
+                  r"\b(all.*are|.*people always|.*typical)\s+(lazy|criminal|unclean|untrustworthy)",
+                  r"\b(race|ethnic|color|skin)\s+(doesn't matter|shouldn't matter)\b"
+              ],
+              "age bias": [
+                  r"\b(too young|too old|over the hill|past your prime)\b",
+                  r"\b(millennials|gen z|baby boomers|seniors)\s+(are|always|typically)\s+(lazy|entitled|out of touch|technophobic)",
+                  r"\b(age discrimination|ageism)\b"
+              ],
+              "socioeconomic bias": [
+                  r"\b(poor|rich|wealthy|low income|high income)\s+(people|area|neighborhood)\b",
+                  r"\b(working class|upper class|social status)\s+(can't|don't|unable to)\s+(afford|understand|appreciate)",
+                  r"\b(class discrimination|economic bias)\b"
+              ]
+          }
+
+          BIAS_API_KEYS = ['supersecret123', 'biasyavar', 'enhancedbias123', 'zgridbias2025']
+
+          def detect_bias_simple(text):
+              """Simple bias detection using regex patterns"""
+              text_lower = text.lower()
+              findings = []
+
+              for category, patterns in BIAS_PATTERNS.items():
+                  for pattern in patterns:
+                      if re.search(pattern, text_lower, re.IGNORECASE):
+                          findings.append({
+                              'category': category,
+                              'confidence': 0.8,
+                              'method': 'pattern_matching',
+                              'matched_text': pattern
+                          })
+                          break
+
+              return findings
+
+          def validate_api_key():
+              """Validate API key"""
+              api_key = request.headers.get('X-API-Key')
+              return api_key in BIAS_API_KEYS
+
+          @app.route('/health', methods=['GET'])
+          def health_check():
+              return jsonify({
+                  'ok': True,
+                  'service': 'Bias Detection Service - Simple Pattern v1.0',
+                  'version': 'v1.0',
+                  'bias_categories': list(BIAS_PATTERNS.keys()),
+                  'timestamp': datetime.now().isoformat()
+              })
+
+          @app.route('/validate', methods=['POST'])
+          def validate_text():
+              if not validate_api_key():
+                  return jsonify({'error': 'Invalid API key'}), 401
+
+              data = request.get_json()
+              if not data or 'text' not in data:
+                  return jsonify({'error': 'Text is required'}), 400
+
+              text = data['text']
+              findings = detect_bias_simple(text)
+
+              bias_score = 0.0
+              if findings:
+                  bias_score = max(finding['confidence'] for finding in findings)
+
+              violated = bias_score > 0.6
+
+              return jsonify({
+                  'text': text,
+                  'context': data.get('context', 'bias testing'),
+                  'bias_score': bias_score,
+                  'violated': violated,
+                  'findings': findings,
+                  'methods_used': ['pattern_matching'] if findings else [],
+                  'analysis_summary': {
+                      'pattern_matches': len(findings),
+                      'total_findings': len(findings)
+                  },
+                  'timestamp': datetime.now().isoformat()
+              })
+
+          if __name__ == '__main__':
+              print("🚀 Starting Bias Detection Service - Pattern v1.0")
+              print(f"📅 Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+              print("✅ Service ready!")
+              app.run(host='0.0.0.0', port=8012, debug=False)
+          SERVICE_EOF
+
+          echo "✅ Service created successfully"
+          exec python bias_service.py
+        ports:
+        - containerPort: 8012
+        env:
+        - name: BIAS_API_KEYS
+          value: "supersecret123,biasyavar,enhancedbias123,zgridbias2025"
+        resources:
+          requests:
+            cpu: "200m"
+            memory: "512Mi"
+          limits:
+            cpu: "1000m"
+            memory: "1Gi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8012
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8012
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      restartPolicy: Always

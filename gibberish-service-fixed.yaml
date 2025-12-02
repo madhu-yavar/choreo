@@ -1,0 +1,273 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gibberish-service-fixed
+  namespace: z-grid
+  labels:
+    app: gibberish-service-fixed
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gibberish-service-fixed
+  template:
+    metadata:
+      labels:
+        app: gibberish-service-fixed
+    spec:
+      containers:
+      - name: gibberish-service-fixed
+        image: python:3.11-slim
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          echo "Installing Flask..."
+          pip install flask requests
+          echo "Starting Gibberish Service..."
+          cat > /tmp/gibberish_app.py << 'PYEOF'
+          from flask import Flask, request, jsonify
+          from datetime import datetime
+          import re
+          import random
+          import string
+
+          app = Flask(__name__)
+          GIBBERISH_API_KEYS = ['gibberish123', 'supersecret123', 'biasyavar', 'enhancedgibberish123']
+
+          # Common gibberish/nonsense patterns
+          GIBBERISH_PATTERNS = [
+              r'(.)\\1{4,}',  # Repeated characters (4+ times)
+              r'[a-z]{10,}[A-Z][a-z]*',  # Long lowercase followed by capital
+              r'[bcdfghjklmnpqrstvwxyz]{8,}',  # Long consonant sequences
+              r'[aeiou]{6,}',  # Long vowel sequences
+              r'[A-Z]{5,}',  # Multiple consecutive capitals
+              r'[0-9]{6,}',  # Long number sequences
+              r'[\\W_]{8,}'  # Long special character sequences
+          ]
+
+          # Random character sequences
+          def is_random_sequence(text, threshold=0.7):
+              if len(text) < 10:
+                  return False
+
+              # Calculate character diversity
+              unique_chars = len(set(text.lower()))
+              total_chars = len(text)
+              diversity = unique_chars / total_chars
+
+              # Check if it's too diverse (random) or too uniform
+              if diversity > 0.9 and total_chars > 15:
+                  return True
+
+              # Check for alternating patterns that look random
+              alternating = 0
+              for i in range(1, len(text)):
+                  if (text[i].islower() and text[i-1].isupper()) or \
+                     (text[i].isupper() and text[i-1].islower()):
+                      alternating += 1
+
+              if alternating / len(text) > 0.6:
+                  return True
+
+              return False
+
+          def detect_gibberish(text):
+              findings = []
+              gibberish_score = 0.0
+
+              # Check against patterns
+              for pattern in GIBBERISH_PATTERNS:
+                  matches = re.finditer(pattern, text)
+                  for match in matches:
+                      findings.append({
+                          'type': 'pattern_match',
+                          'pattern': pattern,
+                          'matched_text': match.group(0)[:20] + ('...' if len(match.group(0)) > 20 else ''),
+                          'position': match.start(),
+                          'confidence': 0.8
+                      })
+                      gibberish_score += 0.2
+
+              # Check for random sequences
+              words = text.split()
+              for word in words:
+                  if len(word) > 8 and is_random_sequence(word):
+                      findings.append({
+                          'type': 'random_sequence',
+                          'matched_text': word[:15] + ('...' if len(word) > 15 else ''),
+                          'position': text.find(word),
+                          'confidence': 0.7
+                      })
+                      gibberish_score += 0.15
+
+              # Check for keyboard mashing (adjacent keys)
+              keyboard_rows = [
+                  'qwertyuiop',
+                  'asdfghjkl',
+                  'zxcvbnm'
+              ]
+
+              for word in words:
+                  if len(word) > 5:
+                      word_lower = word.lower()
+                      for row in keyboard_rows:
+                          consecutive = 0
+                          max_consecutive = 0
+                          for i, char in enumerate(word_lower):
+                              if char in row:
+                                  consecutive += 1
+                                  max_consecutive = max(max_consecutive, consecutive)
+                              else:
+                                  consecutive = 0
+
+                          if max_consecutive >= 4:
+                              findings.append({
+                                  'type': 'keyboard_mash',
+                                  'matched_text': word[:10] + ('...' if len(word) > 10 else ''),
+                                  'position': text.find(word),
+                                  'confidence': 0.6
+                              })
+                              gibberish_score += 0.1
+                              break
+
+              # Normalize score
+              gibberish_score = min(gibberish_score, 1.0)
+              is_gibberish = gibberish_score > 0.4
+
+              return {
+                  'is_gibberish': is_gibberish,
+                  'gibberish_score': round(gibberish_score, 2),
+                  'findings': findings,
+                  'analysis': {
+                      'text_length': len(text),
+                      'word_count': len(words),
+                      'patterns_found': len([f for f in findings if f['type'] == 'pattern_match']),
+                      'random_sequences': len([f for f in findings if f['type'] == 'random_sequence']),
+                      'keyboard_mashes': len([f for f in findings if f['type'] == 'keyboard_mash'])
+                  }
+              }
+
+          def validate_api_key():
+              api_key = request.headers.get('X-API-Key')
+              return api_key in GIBBERISH_API_KEYS
+
+          @app.route('/health', methods=['GET'])
+          def health():
+              return jsonify({
+                  'ok': True,
+                  'service': 'Gibberish Detection Service',
+                  'status': 'running',
+                  'timestamp': datetime.now().isoformat()
+              })
+
+          @app.route('/gibberish/detect', methods=['POST'])
+          def detect_gibberish_endpoint():
+              if not validate_api_key():
+                  return jsonify({'error': 'Invalid API key'}), 401
+
+              data = request.get_json()
+              if not data or 'text' not in data:
+                  return jsonify({'error': 'Text is required'}), 400
+
+              text = data['text']
+              result = detect_gibberish(text)
+
+              return jsonify({
+                  'text_sample': text[:100] + ('...' if len(text) > 100 else ''),
+                  'detection_time': datetime.now().isoformat(),
+                  **result
+              })
+
+          @app.route('/gibberish/analyze', methods=['POST'])
+          def analyze_text():
+              if not validate_api_key():
+                  return jsonify({'error': 'Invalid API key'}), 401
+
+              data = request.get_json()
+              if not data or 'text' not in data:
+                  return jsonify({'error': 'Text is required'}), 400
+
+              text = data['text']
+              result = detect_gibberish(text)
+
+              # Additional analysis
+              words = text.split()
+              avg_word_length = sum(len(word) for word in words) / len(words) if words else 0
+              long_words = [word for word in words if len(word) > 12]
+              short_words = [word for word in words if len(word) < 3 and len(word) > 0]
+
+              return jsonify({
+                  'text_stats': {
+                      'character_count': len(text),
+                      'word_count': len(words),
+                      'average_word_length': round(avg_word_length, 2),
+                      'long_words_count': len(long_words),
+                      'short_words_count': len(short_words),
+                      'sentence_count': len(re.split(r'[.!?]+', text))
+                  },
+                  'gibberish_analysis': result,
+                  'analysis_time': datetime.now().isoformat()
+              })
+
+          @app.route('/gibberish/examples', methods=['GET'])
+          def get_examples():
+              return jsonify({
+                  'gibberish_examples': [
+                      'asdfghjklqwertyuiop',
+                      'aaaaabbbbbbcccccddddd',
+                      'xyz1234567890abcxyz',
+                      'qwertyuiopasdfghjklzxcvbnm',
+                      'jklmnopqrstuvwxyzabcd'
+                  ],
+                  'legitimate_examples': [
+                      'This is a normal sentence.',
+                      'The quick brown fox jumps over the lazy dog.',
+                      'Machine learning is a subset of artificial intelligence.',
+                      'Hello, how are you doing today?'
+                  ]
+              })
+
+          if __name__ == '__main__':
+              print("🚀 Gibberish Service Starting on port 8007...")
+              app.run(host='0.0.0.0', port=8007, debug=False)
+          PYEOF
+          python3 /tmp/gibberish_app.py
+        ports:
+        - containerPort: 8007
+        env:
+        - name: GIBBERISH_API_KEYS
+          value: "gibberish123,supersecret123,biasyavar,enhancedgibberish123"
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8007
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8007
+          initialDelaySeconds: 10
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gibberish-service-fixed
+  namespace: z-grid
+spec:
+  selector:
+    app: gibberish-service-fixed
+  ports:
+  - port: 8007
+    targetPort: 8007
+  type: LoadBalancer

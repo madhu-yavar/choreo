@@ -1,0 +1,163 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: format-service-simple
+  namespace: z-grid
+  labels:
+    app: format-service-simple
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: format-service-simple
+  template:
+    metadata:
+      labels:
+        app: format-service-simple
+    spec:
+      containers:
+      - name: format-service-simple
+        image: python:3.11-slim
+        command:
+        - python3
+        - -c
+        - |
+          from flask import Flask, request, jsonify
+          from datetime import datetime
+          import re
+          import html
+
+          app = Flask(__name__)
+          FORMAT_API_KEYS = ['format123', 'supersecret123', 'biasyavar', 'enhancedformat123']
+
+          def validate_api_key():
+              api_key = request.headers.get('X-API-Key')
+              return api_key in FORMAT_API_KEYS
+
+          def detect_format_issues(text):
+              issues = []
+
+              # Check for excessive whitespace
+              if re.search(r'\\n\\s*\\n\\s*\\n', text):
+                  issues.append({
+                      'type': 'excessive_whitespace',
+                      'severity': 'low',
+                      'description': 'Contains excessive line breaks'
+                  })
+
+              # Check for trailing whitespace
+              if re.search(r'[ \\t]+\\n', text):
+                  issues.append({
+                      'type': 'trailing_whitespace',
+                      'severity': 'low',
+                      'description': 'Lines with trailing whitespace'
+                  })
+
+              # Check for HTML injection patterns
+              if re.search(r'<script[^>]*>', text, re.IGNORECASE):
+                  issues.append({
+                      'type': 'potential_injection',
+                      'severity': 'high',
+                      'description': 'HTML script tag detected'
+                  })
+
+              return issues
+
+          @app.route('/health', methods=['GET'])
+          def health():
+              return jsonify({
+                  'ok': True,
+                  'service': 'Format Validation Service',
+                  'status': 'running',
+                  'timestamp': datetime.now().isoformat()
+              })
+
+          @app.route('/format/validate', methods=['POST'])
+          def validate_format():
+              if not validate_api_key():
+                  return jsonify({'error': 'Invalid API key'}), 401
+
+              data = request.get_json()
+              if not data or 'text' not in data:
+                  return jsonify({'error': 'Text is required'}), 400
+
+              text = data['text']
+              issues = detect_format_issues(text)
+              score = max(0, 100 - len(issues) * 15)
+
+              return jsonify({
+                  'text_length': len(text),
+                  'line_count': len(text.split('\\n')),
+                  'quality_score': score,
+                  'issues_found': len(issues),
+                  'issues': issues,
+                  'validation_time': datetime.now().isoformat()
+              })
+
+          @app.route('/format/sanitize', methods=['POST'])
+          def sanitize_format():
+              if not validate_api_key():
+                  return jsonify({'error': 'Invalid API key'}), 401
+
+              data = request.get_json()
+              if not data or 'text' not in data:
+                  return jsonify({'error': 'Text is required'}), 400
+
+              text = data['text']
+              sanitized = text
+
+              # Remove excessive whitespace
+              sanitized = re.sub(r'\\n\\s*\\n\\s*\\n+', '\\n\\n', sanitized)
+              # Remove trailing whitespace
+              sanitized = re.sub(r'[ \\t]+\\n', '\\n', sanitized)
+              # Escape HTML
+              sanitized = re.sub(r'<script[^>]*>.*?</script>', lambda m: '[REDACTED_SCRIPT]', sanitized, flags=re.IGNORECASE | re.DOTALL)
+
+              return jsonify({
+                  'original_length': len(text),
+                  'sanitized_length': len(sanitized),
+                  'changes_made': len(text) != len(sanitized),
+                  'sanitized_text': sanitized,
+                  'sanitization_time': datetime.now().isoformat()
+              })
+
+          if __name__ == '__main__':
+              print("🚀 Format Service Starting...")
+              app.run(host='0.0.0.0', port=8006, debug=False)
+        ports:
+        - containerPort: 8006
+        env:
+        - name: FORMAT_API_KEYS
+          value: "format123,supersecret123,biasyavar,enhancedformat123"
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8006
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8006
+          initialDelaySeconds: 10
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: format-service-simple
+  namespace: z-grid
+spec:
+  selector:
+    app: format-service-simple
+  ports:
+  - port: 8006
+    targetPort: 8006
+  type: LoadBalancer

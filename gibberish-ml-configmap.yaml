@@ -1,0 +1,522 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gibberish-ml-code
+  namespace: z-grid
+data:
+  app.py: |
+    import os
+    import re
+    import numpy as np
+    from flask import Flask, request, jsonify
+    from datetime import datetime
+    import joblib
+    import pickle
+    import json
+    from collections import Counter
+    import math
+    import warnings
+    warnings.filterwarnings('ignore')
+
+    app = Flask(__name__)
+    GIBBERISH_API_KEYS = ['gibberish123', 'supersecret123', 'biasyavar', 'enhancedgibberish123']
+
+    class MLDetector:
+        """ML-based gibberish detection using character n-grams and statistical features"""
+
+        def __init__(self):
+            self.model = None
+            self.vectorizer = None
+            self.load_models()
+
+        def load_models(self):
+            """Try to load pre-trained models, otherwise create basic ones"""
+            try:
+                # In production, these would be actual trained models
+                # For now, we'll use rule-based ML approach
+                self.model = self._create_simple_model()
+                print("🔧 ML Detector initialized with statistical models")
+            except Exception as e:
+                print(f"⚠️  Could not load ML models: {e}")
+                self.model = None
+
+        def _create_simple_model(self):
+            """Create a simple statistical model for gibberish detection"""
+            return {
+                'vowel_consonant_ratio_threshold': (0.2, 0.8),
+                'char_diversity_threshold': (0.3, 0.95),
+                'entropy_threshold': 3.5,
+                'ngram_features': True
+            }
+
+        def extract_features(self, text):
+            """Extract ML features from text"""
+            if not text:
+                return [0] * 15
+
+            text = text.lower()
+            features = []
+
+            # Basic features
+            features.append(len(text))  # length
+            features.append(len(text.split()))  # word count
+            features.append(len(set(text)) / len(text) if len(text) > 0 else 0)  # char diversity
+            features.append(text.count(' ') / len(text) if len(text) > 0 else 0)  # space ratio
+
+            # Vowel/consonant features
+            vowels = 'aeiou'
+            vowel_count = sum(1 for c in text if c in vowels)
+            consonant_count = sum(1 for c in text if c.isalpha() and c not in vowels)
+            total_letters = vowel_count + consonant_count
+
+            if total_letters > 0:
+                features.append(vowel_count / total_letters)  # vowel ratio
+                features.append(consonant_count / total_letters)  # consonant ratio
+            else:
+                features.extend([0, 0])
+
+            # Repeated characters
+            max_repeat = 1
+            current_repeat = 1
+            for i in range(1, len(text)):
+                if text[i] == text[i-1]:
+                    current_repeat += 1
+                    max_repeat = max(max_repeat, current_repeat)
+                else:
+                    current_repeat = 1
+            features.append(max_repeat)
+
+            # Entropy calculation
+            char_counts = Counter(text)
+            entropy = 0
+            for count in char_counts.values():
+                p = count / len(text)
+                if p > 0:
+                    entropy -= p * math.log2(p)
+            features.append(entropy)
+
+            # N-gram features
+            bigrams = [text[i:i+2] for i in range(len(text)-1)]
+            trigrams = [text[i:i+3] for i in range(len(text)-2)]
+
+            features.append(len(set(bigrams)) / len(bigrams) if len(bigrams) > 0 else 0)
+            features.append(len(set(trigrams)) / len(trigrams) if len(trigrams) > 0 else 0)
+
+            # Keyboard patterns
+            keyboard_rows = ['qwertyuiop', 'asdfghjkl', 'zxcvbnm']
+            keyboard_score = 0
+
+            for row in keyboard_rows:
+                for i in range(len(text)-2):
+                    if text[i:i+3].lower() in row:
+                        keyboard_score += 1
+
+            features.append(keyboard_score / len(text) if len(text) > 0 else 0)
+
+            # Digit and special character ratios
+            digits = sum(1 for c in text if c.isdigit())
+            special = sum(1 for c in text if not c.isalnum() and not c.isspace())
+
+            features.append(digits / len(text) if len(text) > 0 else 0)
+            features.append(special / len(text) if len(text) > 0 else 0)
+
+            # Average word length
+            words = [w for w in text.split() if w.strip()]
+            if words:
+                avg_word_len = sum(len(w) for w in words) / len(words)
+            else:
+                avg_word_len = 0
+            features.append(avg_word_len)
+
+            return features
+
+        def predict_gibberish(self, text):
+            """Predict if text is gibberish using ML features"""
+            if not self.model:
+                return 0.5, "No ML model available", []
+
+            features = self.extract_features(text)
+
+            # Rule-based scoring using the features
+            score = 0.0
+            reasons = []
+
+            # Length-based scoring
+            if len(text) > 100:
+                score += 0.1
+                reasons.append("Very long text")
+
+            # Character diversity scoring
+            char_diversity = features[2]
+            if char_diversity > 0.9:
+                score += 0.2
+                reasons.append("High character diversity (possible random)")
+            elif char_diversity < 0.3:
+                score += 0.15
+                reasons.append("Low character diversity (repetitive)")
+
+            # Vowel/consonant ratio
+            vowel_ratio = features[4]
+            if vowel_ratio < 0.2 or vowel_ratio > 0.8:
+                score += 0.15
+                reasons.append("Unusual vowel/consonant ratio")
+
+            # Repeated characters
+            max_repeat = features[7]
+            if max_repeat > 3:
+                score += 0.2 * (max_repeat / 10)
+                reasons.append(f"Repeated characters (max: {max_repeat})")
+
+            # Entropy
+            entropy = features[8]
+            if entropy > 4.5:
+                score += 0.2
+                reasons.append("High entropy (random-like)")
+
+            # Keyboard patterns
+            keyboard_score = features[13]
+            if keyboard_score > 0.1:
+                score += 0.15
+                reasons.append("Keyboard mashing patterns")
+
+            # Digit and special character ratios - check array bounds
+            if len(features) > 14:
+                digit_ratio = features[14]
+                if digit_ratio > 0.3:
+                    score += 0.1
+                    reasons.append("High digit ratio")
+
+            if len(features) > 15:
+                special_ratio = features[15]
+                if special_ratio > 0.2:
+                    score += 0.1
+                    reasons.append("High special character ratio")
+
+            # Average word length - check array bounds
+            avg_word_len = features[16] if len(features) > 16 else 0
+            if avg_word_len > 12:
+                score += 0.15
+                reasons.append("Unusually long words")
+            elif avg_word_len < 2:
+                score += 0.1
+                reasons.append("Unusually short words")
+
+            # Normalize score
+            final_score = min(score, 1.0)
+
+            # Balanced thresholds - middle ground between sensitivity and precision
+            if final_score > 0.65:
+                classification = "gibberish"
+            elif final_score > 0.35:
+                classification = "suspicious"
+            else:
+                classification = "legitimate"
+
+            return final_score, classification, reasons
+
+    class EnhancedGibberishDetector:
+        """Enhanced gibberish detector combining ML and rule-based approaches"""
+
+        def __init__(self):
+            self.ml_detector = MLDetector()
+
+            # Gibberish patterns
+            self.gibberish_patterns = [
+                r'(.)\1{4,}',  # Repeated characters
+                r'[a-z]{10,}[A-Z][a-z]*',  # Long lowercase followed by capital
+                r'[bcdfghjklmnpqrstvwxyz]{8,}',  # Long consonant sequences
+                r'[aeiou]{6,}',  # Long vowel sequences
+                r'[A-Z]{5,}',  # Multiple consecutive capitals
+                r'[0-9]{6,}',  # Long number sequences
+                r'[\W_]{8,}'  # Long special character sequences
+            ]
+
+            # Legitimate words list (common English words)
+            self.legitimate_words = {
+                'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
+                'from', 'up', 'about', 'into', 'through', 'during', 'before', 'after', 'above', 'below',
+                'between', 'among', 'under', 'over', 'above', 'is', 'am', 'are', 'was', 'were', 'be', 'been', 'being',
+                'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'must',
+                'hello', 'world', 'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they',
+                'what', 'which', 'who', 'when', 'where', 'why', 'how', 'not', 'no', 'yes', 'if', 'because'
+            }
+
+        def detect_gibberish(self, text):
+            """ML-first detection function - ML classification drives the result"""
+            if not text or not text.strip():
+                return {
+                    'is_gibberish': False,
+                    'gibberish_score': 0.0,
+                    'classification': 'empty',
+                    'findings': [],
+                    'ml_analysis': {},
+                    'pattern_analysis': {},
+                    'linguistic_analysis': {}
+                }
+
+            findings = []
+
+            # Primary: ML-based detection (drives the classification)
+            ml_score, ml_classification, ml_reasons = self.ml_detector.predict_gibberish(text)
+
+            # Secondary: Pattern-based detection (for additional context)
+            pattern_score, pattern_findings = self._pattern_detection(text)
+            findings.extend(pattern_findings)
+
+            # Tertiary: Linguistic analysis (for additional context)
+            linguistic_score, linguistic_findings = self._linguistic_analysis(text)
+            findings.extend(linguistic_findings)
+
+            # Use ML classification as the primary driver
+            # Adjust final score based on ML confidence + supporting evidence
+            final_score = ml_score
+
+            # Boost confidence if patterns support ML classification
+            if ml_classification == "gibberish" and pattern_score > 0.3:
+                final_score = min(final_score + 0.2, 1.0)
+            elif ml_classification == "suspicious" and pattern_score > 0.2:
+                final_score = min(final_score + 0.1, 1.0)
+
+            # ML classification determines the final classification
+            classification = ml_classification
+
+            # Adjust is_gibberish threshold to be more aligned with ML results
+            is_gibberish = classification == "gibberish" or (classification == "suspicious" and final_score > 0.4)
+
+            return {
+                'is_gibberish': is_gibberish,
+                'gibberish_score': round(final_score, 3),
+                'classification': classification,
+                'findings': findings,
+                'ml_analysis': {
+                    'score': round(ml_score, 3),
+                    'classification': ml_classification,
+                    'reasons': ml_reasons,
+                    'primary_driver': True
+                },
+                'pattern_analysis': {
+                    'score': round(pattern_score, 3),
+                    'patterns_found': len(pattern_findings),
+                    'role': 'supporting_evidence'
+                },
+                'linguistic_analysis': {
+                    'score': round(linguistic_score, 3),
+                    'linguistic_issues': len(linguistic_findings),
+                    'role': 'supporting_evidence'
+                }
+            }
+
+        def _pattern_detection(self, text):
+            """Pattern-based gibberish detection"""
+            findings = []
+            score = 0.0
+
+            for pattern in self.gibberish_patterns:
+                matches = re.finditer(pattern, text)
+                for match in matches:
+                    findings.append({
+                        'type': 'pattern_match',
+                        'pattern': pattern,
+                        'matched_text': match.group(0)[:20] + ('...' if len(match.group(0)) > 20 else ''),
+                        'position': match.start(),
+                        'confidence': 0.8
+                    })
+                    score += 0.2
+
+            return min(score, 1.0), findings
+
+        def _linguistic_analysis(self, text):
+            """Linguistic analysis for gibberish detection"""
+            findings = []
+            score = 0.0
+
+            words = re.findall(r'\b\w+\b', text.lower())
+            if not words:
+                return 0.0, findings
+
+            # Check for legitimate words
+            legitimate_count = sum(1 for word in words if word in self.legitimate_words)
+            legitimate_ratio = legitimate_count / len(words) if words else 0
+
+            if legitimate_ratio < 0.1 and len(words) > 3:
+                findings.append({
+                    'type': 'low_legitimate_words',
+                    'legitimate_ratio': round(legitimate_ratio, 2),
+                    'confidence': 0.7
+                })
+                score += 0.3
+
+            # Check word lengths
+            long_words = [w for w in words if len(w) > 12]
+            if len(long_words) > len(words) * 0.3:
+                findings.append({
+                    'type': 'unusually_long_words',
+                    'count': len(long_words),
+                    'confidence': 0.6
+                })
+                score += 0.2
+
+            # Check for random-looking strings
+            random_words = 0
+            for word in words:
+                if len(word) > 6:
+                    unique_chars = len(set(word))
+                    diversity = unique_chars / len(word)
+                    if diversity > 0.9:
+                        random_words += 1
+
+            if random_words > len(words) * 0.4:
+                findings.append({
+                    'type': 'random_looking_words',
+                    'count': random_words,
+                    'confidence': 0.8
+                })
+                score += 0.25
+
+            return min(score, 1.0), findings
+
+    # Global detector instance
+    detector = EnhancedGibberishDetector()
+
+    def validate_api_key():
+        """Validate API key from request headers"""
+        api_key = request.headers.get('X-API-Key')
+        return api_key in GIBBERISH_API_KEYS
+
+    @app.route('/health', methods=['GET'])
+    def health():
+        """Health check endpoint"""
+        return jsonify({
+            'ok': True,
+            'service': 'Enhanced Gibberish Detection Service with ML',
+            'status': 'running',
+            'ml_detector': 'available' if detector.ml_detector.model else 'unavailable',
+            'timestamp': datetime.now().isoformat()
+        })
+
+    @app.route('/gibberish/detect', methods=['POST'])
+    def detect_gibberish_endpoint():
+        """Enhanced gibberish detection endpoint"""
+        if not validate_api_key():
+            return jsonify({'error': 'Invalid API key'}), 401
+
+        data = request.get_json()
+        if not data or 'text' not in data:
+            return jsonify({'error': 'Text is required'}), 400
+
+        text = data['text']
+        result = detector.detect_gibberish(text)
+
+        return jsonify({
+            'text_sample': text[:100] + ('...' if len(text) > 100 else ''),
+            'detection_time': datetime.now().isoformat(),
+            'detector_version': 'ML-Enhanced-v1.0',
+            **result
+        })
+
+    @app.route('/gibberish/analyze', methods=['POST'])
+    def analyze_text():
+        """Detailed text analysis endpoint"""
+        if not validate_api_key():
+            return jsonify({'error': 'Invalid API key'}), 401
+
+        data = request.get_json()
+        if not data or 'text' not in data:
+            return jsonify({'error': 'Text is required'}), 400
+
+        text = data['text']
+        result = detector.detect_gibberish(text)
+
+        # Extract ML features for detailed analysis
+        ml_features = detector.ml_detector.extract_features(text)
+
+        # Additional statistics
+        words = re.findall(r'\b\w+\b', text)
+        sentences = re.split(r'[.!?]+', text)
+
+        return jsonify({
+            'text_stats': {
+                'character_count': len(text),
+                'word_count': len(words),
+                'sentence_count': len([s for s in sentences if s.strip()]),
+                'avg_word_length': round(sum(len(w) for w in words) / len(words), 2) if words else 0,
+                'unique_words': len(set(w.lower() for w in words)),
+                'vocabulary_richness': round(len(set(w.lower() for w in words)) / len(words), 2) if words else 0
+            },
+            'ml_features': {
+                'char_diversity': round(ml_features[2], 3),
+                'vowel_ratio': round(ml_features[4], 3),
+                'max_repeat': int(ml_features[7]),
+                'entropy': round(ml_features[8], 3),
+                'keyboard_score': round(ml_features[13], 3),
+                'avg_word_length': round(ml_features[16], 2)
+            },
+            'gibberish_analysis': result,
+            'analysis_time': datetime.now().isoformat()
+        })
+
+    @app.route('/gibberish/examples', methods=['GET'])
+    def get_examples():
+        """Get example gibberish and legitimate texts"""
+        return jsonify({
+            'gibberish_examples': [
+                'asdfghjklqwertyuiop',
+                'aaaaabbbbbbcccccddddd',
+                'xyz1234567890abcxyz',
+                'qwertyuiopasdfghjklzxcvbnm',
+                'jklmnopqrstuvwxyzabcd',
+                'supercalifragilisticexpialidocious' * 3,
+                '12345678901234567890',
+                '!!!!????????!!!!@@@###'
+            ],
+            'legitimate_examples': [
+                'This is a normal sentence.',
+                'The quick brown fox jumps over the lazy dog.',
+                'Machine learning is a subset of artificial intelligence.',
+                'Hello, how are you doing today?',
+                'I love programming and solving complex problems.',
+                'The weather is beautiful this morning.'
+            ],
+            'suspicious_examples': [
+                'Buy now!!! Limited time offer!!!',
+                'CLICK HERE FOR FREE MONEY!!!',
+                'Congratulations! You have won $1000000!!!'
+            ]
+        })
+
+    @app.route('/gibberish/ml/features', methods=['POST'])
+    def extract_ml_features():
+        """Extract ML features from text (for debugging and analysis)"""
+        if not validate_api_key():
+            return jsonify({'error': 'Invalid API key'}), 401
+
+        data = request.get_json()
+        if not data or 'text' not in data:
+            return jsonify({'error': 'Text is required'}), 400
+
+        text = data['text']
+        features = detector.ml_detector.extract_features(text)
+
+        feature_names = [
+            'text_length', 'word_count', 'char_diversity', 'space_ratio',
+            'vowel_ratio', 'consonant_ratio', 'max_repeated_chars', 'entropy',
+            'bigram_diversity', 'trigram_diversity', 'keyboard_pattern_score',
+            'digit_ratio', 'special_char_ratio', 'avg_word_length'
+        ]
+
+        return jsonify({
+            'text': text[:100] + ('...' if len(text) > 100 else ''),
+            'features': dict(zip(feature_names, features)),
+            'extraction_time': datetime.now().isoformat()
+        })
+
+    @app.route('/gibberish/validate', methods=['POST'])
+    def validate_text():
+        """Alternative validation endpoint (for compatibility)"""
+        return detect_gibberish_endpoint()
+
+    if __name__ == '__main__':
+        print("🚀 Enhanced ML Gibberish Service Starting on port 8007...")
+        print("🧠 ML Detector Status:", "Available" if detector.ml_detector.model else "Unloaded")
+        print("🔍 Combining Pattern-based and ML-based Detection")
+        app.run(host='0.0.0.0', port=8007, debug=False)

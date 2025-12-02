@@ -1,0 +1,131 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: policy-service-llamaguard-hybrid-v2
+  namespace: z-grid
+  labels:
+    app: policy-service-llamaguard-hybrid-v2
+    version: v2.0.0
+    component: safety
+    tier: service
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: policy-service-llamaguard-hybrid-v2
+  template:
+    metadata:
+      labels:
+        app: policy-service-llamaguard-hybrid-v2
+        version: v2.0.0
+        component: safety
+        tier: service
+    spec:
+      containers:
+      - name: llamaguard-hybrid
+        image: python:3.11
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/bash
+        - -c
+        - |
+          # Copy script from configmap
+          cp /config/production_llamaguard_hybrid.py /tmp/
+
+          # Install dependencies (llama-cpp-python is the key fix)
+          pip install fastapi uvicorn pydantic python-multipart llama-cpp-python
+
+          # Start the service
+          cd /tmp && python production_llamaguard_hybrid.py
+        volumeMounts:
+        - name: script-volume
+          mountPath: /config
+        env:
+        - name: PORT
+          value: "8003"
+        - name: HOST
+          value: "0.0.0.0"
+        - name: MODEL_PATH
+          value: "/tmp/models/llamaguard-7b.Q4_0.gguf"
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: N_THREADS
+          value: "4"
+        - name: N_CTX
+          value: "2048"
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        ports:
+        - name: http
+          containerPort: 8003
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 1000m
+            memory: 4Gi
+          limits:
+            cpu: 2000m
+            memory: 8Gi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+          successThreshold: 1
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+          successThreshold: 1
+        startupProbe:
+          httpGet:
+            path: /health
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 30
+          successThreshold: 1
+      volumes:
+      - name: script-volume
+        configMap:
+          name: llamaguard-script
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 60
+      dnsPolicy: ClusterFirst
+      imagePullSecrets:
+      - name: acr-auth
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: policy-service-llamaguard-hybrid-v2
+  namespace: z-grid
+  labels:
+    app: policy-service-llamaguard-hybrid-v2
+    component: safety
+    tier: service
+spec:
+  selector:
+    app: policy-service-llamaguard-hybrid-v2
+  ports:
+  - name: http
+    port: 8003
+    targetPort: http
+    protocol: TCP
+  type: ClusterIP

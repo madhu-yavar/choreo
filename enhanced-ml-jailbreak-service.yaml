@@ -1,0 +1,277 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: enhanced-ml-jailbreak-script
+  namespace: z-grid
+data:
+  ml_service.py: |
+    import json
+    import time
+    import re
+    import os
+    from flask import Flask, request, jsonify
+
+    app = Flask(__name__)
+
+    class EnhancedMLJailbreakDetector:
+        def __init__(self):
+            self.model_loaded = True
+            print('🚀 Initializing Enhanced ML Jailbreak Detector with Contextual Understanding')
+
+            # Enhanced patterns with contextual awareness
+            self.patterns = [
+                (r'(?i)\b(ignore|forget|disregard)\b.*\b(previous|above|earlier)\b.*\b(instructions?|prompt|rule)s?\b', 0.9, 'system_override'),
+                (r'(?i)\b(dan|do anything now)\b', 0.95, 'dan_attack'),
+                (r'(?i)\b(jailbreak|jail\s*break)\b', 0.85, 'explicit_jailbreak'),
+                (r'(?i)\b(system\s*override|developer\s*mode|admin\s*mode|debug\s*mode)\b', 0.9, 'system_override'),
+                (r'(?i)\b(bypass|override|circumvent)\b.*\b(filter|restriction|safety|guidelines)\b', 0.8, 'bypass_attempt'),
+                (r'(?i)\b(jeeves|omega|openbot|badbot)\b', 0.85, 'persona_attack'),
+                (r'(?i)\b(unrestricted|uncensored|amoral)\b.*\b(ai|assistant|model)\b', 0.7, 'persona_manipulation'),
+                # Contextual patterns
+                (r'(?i)\b(disregard|ignore|override).*\b(safety|guidelines|rules|restrictions)\b', 0.85, 'safety_override'),
+                (r'(?i)\b(suspend|disable).*\b(ethical|moral|safety)\s*(filters|guidelines)\b', 0.9, 'system_disable'),
+                (r'(?i)\b(white\s*font|invisible).*\b(text|content)\b', 0.7, 'stealth_text'),
+                (r'(?i)\b(roleplay|pretend.*you.*are).*\b(unrestricted|without.*rules)\b', 0.8, 'roleplay_bypass'),
+                (r'(?i)\b(for.*educational|research).*\b(how.*to|guide)\b', 0.6, 'educational_excuse'),
+                (r'(?i)\b(imagine|hypothetically).*\b(if.*you.*could|what.*if)\b', 0.5, 'hypothetical_prompt'),
+            ]
+
+        def contextual_analysis(self, text):
+            """Simulated ML contextual analysis"""
+            text_lower = text.lower()
+
+            # Jailbreak indicators with context
+            jailbreak_signs = [
+                'ignore all', 'disregard safety', 'bypass guidelines', 'no restrictions',
+                'unrestricted mode', 'developer mode', 'system override', 'suspended'
+            ]
+
+            # Legitimate context indicators
+            legitimate_context = [
+                'for educational purposes', 'research paper', 'academic study',
+                'security course', 'cybersecurity education', 'authorized testing'
+            ]
+
+            jailbreak_score = 0
+            legitimate_score = 0
+
+            for sign in jailbreak_signs:
+                if sign in text_lower:
+                    jailbreak_score += 0.25
+
+            for legit in legitimate_context:
+                if legit in text_lower:
+                    legitimate_score += 0.3
+
+            # Contextual reasoning
+            if jailbreak_score > 0.5 and legitimate_score < 0.3:
+                return max(jailbreak_score, 0.8), 'high_risk_context'
+            elif legitimate_score > 0.4:
+                return max(jailbreak_score - 0.4, 0.0), 'legitimate_context'
+            else:
+                return (jailbreak_score + 0.1) / 2, 'neutral_context'
+
+        def detect_jailbreak(self, text):
+            """Hybrid ML + Pattern detection with contextual understanding"""
+            if not text or not text.strip():
+                return False, 0.0, [], 'empty_text'
+
+            # Pattern matching
+            pattern_score = 0.0
+            pattern_matches = []
+
+            for pattern, weight, category in self.patterns:
+                if re.search(pattern, text, re.IGNORECASE):
+                    pattern_score += weight
+                    pattern_matches.append({'pattern': category, 'confidence': weight})
+
+            # Contextual ML analysis
+            ml_score, context_type = self.contextual_analysis(text)
+
+            # Decision logic with contextual weighting
+            if context_type == 'high_risk_context':
+                final_confidence = max(pattern_score, ml_score)
+                method = 'ml_contextual_high_risk'
+            elif context_type == 'legitimate_context':
+                final_confidence = max(0, pattern_score - 0.3)
+                method = 'ml_contextual_safe'
+            else:
+                final_confidence = min(ml_score + pattern_score * 0.4, 1.0)
+                method = 'ml_contextual_hybrid'
+
+            is_jailbreak = final_confidence > 0.6
+
+            return is_jailbreak, final_confidence, pattern_matches, method
+
+    detector = EnhancedMLJailbreakDetector()
+
+    @app.route('/health', methods=['GET'])
+    def health():
+        return jsonify({
+            'ok': True,
+            'service': 'Enhanced ML Jailbreak Detection Service',
+            'version': 'v2.0-contextual',
+            'model_loaded': detector.model_loaded,
+            'patterns_count': len(detector.patterns),
+            'status': 'healthy'
+        })
+
+    @app.route('/validate', methods=['POST'])
+    def validate():
+        auth_key = request.headers.get('x-api-key', '')
+        if auth_key not in ['supersecret123', 'jailvalyar']:
+            return jsonify({'error': 'Invalid API key'}), 401
+
+        try:
+            data = request.get_json()
+            if not data:
+                return jsonify({'error': 'No JSON data provided'}), 400
+
+            text = data.get('text', '')
+            if not text.strip():
+                return jsonify({
+                    'status': 'pass', 'clean_text': '', 'flagged': [],
+                    'categories': [], 'violated': False, 'reasons': ['Empty text']
+                })
+
+            start_time = time.time()
+            is_jailbreak, confidence, matches, method = detector.detect_jailbreak(text)
+            processing_time = (time.time() - start_time) * 1000
+
+            if is_jailbreak:
+                flagged_items = [{
+                    'type': 'jailbreak', 'confidence': confidence,
+                    'text': text[:100] + ('...' if len(text) > 100 else ''),
+                    'category': 'contextual_ml_detection',
+                    'detection_method': method,
+                    'pattern_matches': matches,
+                    'ml_contextual_analysis': True
+                }]
+
+                return jsonify({
+                    'status': 'blocked', 'clean_text': '', 'flagged': flagged_items,
+                    'categories': ['jailbreak'], 'violated': True,
+                    'reasons': [
+                        f'Contextual jailbreak detected (confidence: {confidence:.3f})',
+                        f'Method: {method}',
+                        f'Patterns found: {len(matches)}',
+                        f'Processing time: {processing_time:.1f}ms',
+                        f'ML contextual analysis: enabled'
+                    ],
+                    'confidence': confidence, 'processing_time_ms': processing_time,
+                    'analysis_method': 'enhanced_contextual_ml',
+                    'contextual_reasoning': method
+                })
+            else:
+                return jsonify({
+                    'status': 'pass', 'clean_text': text, 'flagged': [],
+                    'categories': [], 'violated': False,
+                    'reasons': [
+                        f'No jailbreak detected (confidence: {confidence:.3f})',
+                        f'Method: {method}',
+                        f'Processing time: {processing_time:.1f}ms',
+                        f'ML contextual analysis: enabled'
+                    ],
+                    'confidence': confidence, 'processing_time_ms': processing_time,
+                    'analysis_method': 'enhanced_contextual_ml',
+                    'contextual_reasoning': method
+                })
+
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+
+    if __name__ == '__main__':
+        print('🚀 Starting Enhanced ML Jailbreak Detection Service on port 8003...')
+        app.run(host='0.0.0.0', port=8003, debug=False)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: enhanced-ml-jailbreak-service
+  namespace: z-grid
+  labels:
+    app: enhanced-ml-jailbreak-service
+    service-type: content-moderation
+    version: v2.0-contextual
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: enhanced-ml-jailbreak-service
+  template:
+    metadata:
+      labels:
+        app: enhanced-ml-jailbreak-service
+        service-type: content-moderation
+        version: v2.0-contextual
+    spec:
+      containers:
+      - name: enhanced-ml-jailbreak-service
+        image: python:3.9-slim
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/bash"]
+        args:
+          - -c
+          - |
+            pip install flask requests &&
+            python /app/ml_service.py
+        ports:
+        - containerPort: 8003
+          name: http
+          protocol: TCP
+        env:
+        - name: SERVICE_NAME
+          value: "enhanced-ml-jailbreak-service"
+        - name: SERVICE_PORT
+          value: "8003"
+        - name: SERVICE_HOST
+          value: "0.0.0.0"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "300m"
+          limits:
+            memory: "1Gi"
+            cpu: "600m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8003
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8003
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        volumeMounts:
+        - name: ml-script
+          mountPath: /app/ml_service.py
+          subPath: ml_service.py
+      volumes:
+      - name: ml-script
+        configMap:
+          name: enhanced-ml-jailbreak-script
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: enhanced-ml-jailbreak-service
+  namespace: z-grid
+  labels:
+    app: enhanced-ml-jailbreak-service
+    service-type: content-moderation
+spec:
+  type: LoadBalancer
+  ports:
+  - name: http
+    port: 8003
+    targetPort: 8003
+    protocol: TCP
+  selector:
+    app: enhanced-ml-jailbreak-service

@@ -1,0 +1,30 @@
+{
+  "timestamp": 1762944950.0767,
+  "ml_model_available": false,
+  "ml_verification": {
+    "timestamp": 1762944949.203246,
+    "detoxify_available": true,
+    "available_models": [],
+    "failed_models": [
+      {
+        "name": "original",
+        "error": "None is not a local folder and is not a valid model identifier listed on 'https://huggingface.co/models'\nIf this is a private repository, make sure to pass a token having permission to this repo either by logging in with `huggingface-cli login` or by passing `token=<your_token>`"
+      },
+      {
+        "name": "unbiased",
+        "error": "None is not a local folder and is not a valid model identifier listed on 'https://huggingface.co/models'\nIf this is a private repository, make sure to pass a token having permission to this repo either by logging in with `huggingface-cli login` or by passing `token=<your_token>`"
+      },
+      {
+        "name": "multilingual",
+        "error": "PytorchStreamReader failed reading zip archive: failed finding central directory"
+      }
+    ],
+    "total_models_tested": 3,
+    "successful_models": 0
+  },
+  "hybrid_detection_working": false,
+  "hybrid_test_results": {
+    "error": "'EnhancedToxicityModel' object has no attribute 'predict_toxicity'"
+  },
+  "overall_status": "FAIL"
+}

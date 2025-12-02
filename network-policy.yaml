@@ -1,0 +1,46 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: policy-service-llamaguard-hybrid-v2-netpol
+  namespace: z-grid
+  labels:
+    app: policy-service-llamaguard-hybrid-v2
+    component: safety
+    tier: service
+spec:
+  podSelector:
+    matchLabels:
+      app: policy-service-llamaguard-hybrid-v2
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow traffic from gateway service only
+  - from:
+    - podSelector:
+        matchLabels:
+          app: gateway-service
+    - namespaceSelector:
+        matchLabels:
+          name: z-grid
+    ports:
+    - protocol: TCP
+      port: 8003
+  # Allow traffic from monitoring systems (prometheus, etc.)
+  - from: []
+    ports:
+    - protocol: TCP
+      port: 8003
+  egress:
+  # Allow DNS resolution
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+  # Allow outbound to anywhere for model downloads if needed
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 80

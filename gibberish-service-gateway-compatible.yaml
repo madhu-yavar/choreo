@@ -1,0 +1,359 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gibberish-service-simple
+  namespace: z-grid
+  labels:
+    app: gibberish-service-simple
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gibberish-service-simple
+  template:
+    metadata:
+      labels:
+        app: gibberish-service-simple
+    spec:
+      containers:
+      - name: gibberish-service
+        image: python:3.11-slim
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          set -e
+          echo "🚀 Starting Inetuned Gibbrish Detection service (96.7% accuracy)"
+
+          # Install dependencies (only once per pod)
+          echo "📦 Installing PyTorch and dependencies..."
+          pip install --no-cache-dir torch>=2.0 transformers>=4.30 flask>=2.3 datasets>=2.0 scikit-learn>=1.0
+          echo "✅ Dependencies installed successfully"
+
+          # Create app directory
+          mkdir -p /app
+          cd /app
+
+          # Create inetuned_gibbrish_detector.py
+          cat << 'EOF' > inetuned_gibbrish_detector.py
+          import os
+          import torch
+          from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
+
+          class InetunedGibbrishDetector:
+              def __init__(self, model_name=None, local_model_path=None):
+                  self.model_name = model_name or "Inetuned Gibbrish Model v2.0"
+                  self.local_model_path = local_model_path or "/model_volume/inetuned_gibbrish_model"
+                  self.tokenizer = None
+                  self.model = None
+                  self.pipeline = None
+                  self.is_loaded = False
+                  self.load_model()
+
+              def load_model(self):
+                  try:
+                      model_path = self.local_model_path
+                      if os.path.exists(model_path):
+                          print(f"Loading Inetuned Gibbrish Model from {model_path}")
+                          self.tokenizer = AutoTokenizer.from_pretrained(model_path)
+                          self.model = AutoModelForSequenceClassification.from_pretrained(model_path)
+
+                          self.pipeline = pipeline(
+                              "text-classification",
+                              model=self.model,
+                              tokenizer=self.tokenizer,
+                              device=-1,
+                              top_k=None
+                          )
+                          self.is_loaded = True
+                          print("✅ Inetuned Gibbrish Model loaded successfully")
+                      else:
+                          print(f"❌ Model path not found: {model_path}")
+                          self.is_loaded = False
+                  except Exception as e:
+                      print(f"❌ Failed to load Inetuned Gibbrish Model: {e}")
+                      self.is_loaded = False
+
+              def detect(self, text):
+                  if not self.is_loaded or not self.pipeline:
+                      return {
+                          "is_gibberish": False,
+                          "confidence": 0.0,
+                          "details": "Model not loaded",
+                          "model_type": "inetuned_error"
+                      }
+
+                  try:
+                      result = self.pipeline(text)
+                      scores = result[0] if isinstance(result, list) else []
+
+                      gibberish_score = 0.0
+                      valid_score = 0.0
+
+                      for score in scores:
+                          label = score['label'].lower()
+                          if 'gibberish' in label or label == 'label_1':
+                              gibberish_score = score['score']
+                          elif 'clean' in label or 'valid' in label or label == 'label_0':
+                              valid_score = score['score']
+
+                      is_gibberish = gibberish_score > valid_score
+                      confidence = max(gibberish_score, valid_score)
+
+                      return {
+                          "is_gibberish": is_gibberish,
+                          "confidence": float(confidence),
+                          "model_type": "inetuned",
+                          "model_name": self.model_name,
+                          "prediction_proba": {
+                              "valid": float(valid_score),
+                              "gibberish": float(gibberish_score)
+                          }
+                      }
+                  except Exception as e:
+                      return {
+                          "is_gibberish": False,
+                          "confidence": 0.0,
+                          "details": f"Detection error: {str(e)}",
+                          "model_type": "inetuned_error"
+                      }
+          EOF
+
+          # Create app.py with BOTH /detect and /validate endpoints
+          cat << 'EOF' > app.py
+          import os
+          import time
+          from flask import Flask, request, jsonify
+          from inetuned_gibbrish_detector import InetunedGibbrishDetector
+
+          app = Flask(__name__)
+          detector = None
+
+          def load_model():
+              global detector
+              try:
+                  print('🚀 Loading Inetuned Gibbrish Model...')
+                  model_path = os.environ.get('MODEL_PATH', '/model_volume/inetuned_gibbrish_model')
+                  print(f'📂 Model path: {model_path}')
+
+                  detector = InetunedGibbrishDetector(local_model_path=model_path)
+
+                  if not detector.is_loaded:
+                      print('❌ Failed to load model')
+                      return False
+
+                  print('✅ Inetuned Gibbrish Model loaded successfully!')
+                  print('📊 Training accuracy: 96.7%')
+                  return True
+              except Exception as e:
+                  print(f'❌ Error loading model: {e}')
+                  return False
+
+          @app.route('/')
+          def home():
+              return jsonify({
+                  'service': 'Gibberish Detection API',
+                  'model': 'Inetuned Gibbrish Model',
+                  'model_version': 'v2.0',
+                  'training_accuracy': '96.7%',
+                  'deployment': 'simple-k8s-gateway-compatible',
+                  'status': 'ready'
+              })
+
+          @app.route('/health', methods=['GET'])
+          def health_check():
+              return jsonify({
+                  'status': 'healthy' if detector and detector.is_loaded else 'unhealthy',
+                  'model_loaded': detector.is_loaded if detector else False,
+                  'model_path': os.getenv('MODEL_PATH', '/model_volume/inetuned_gibbrish_model'),
+                  'model_type': 'inetuned',
+                  'model_version': 'v2.0',
+                  'training_accuracy': '96.7%',
+                  'deployment': 'simple-k8s-gateway-compatible'
+              })
+
+          @app.route('/detect', methods=['POST'])
+          def detect_gibberish():
+              try:
+                  data = request.get_json()
+                  if not data or 'text' not in data:
+                      return jsonify({'error': 'Missing text field'}), 400
+
+                  text = data['text']
+                  if not isinstance(text, str):
+                      return jsonify({'error': 'Text must be a string'}), 400
+
+                  if not detector or not detector.is_loaded:
+                      return jsonify({'error': 'Model not loaded'}), 503
+
+                  start_time = time.time()
+                  result = detector.detect(text)
+                  inference_time = time.time() - start_time
+
+                  result['inference_time_ms'] = round(inference_time * 1000, 2)
+                  result['deployment_type'] = 'simple-k8s-gateway-compatible'
+
+                  return jsonify(result)
+
+              except Exception as e:
+                  return jsonify({'error': str(e)}), 500
+
+          @app.route('/validate', methods=['POST'])
+          def validate_gibberish():
+              """
+              Gateway-compatible endpoint for gibberish detection
+              Expected format for Simple Gateway Service integration
+              """
+              try:
+                  data = request.get_json()
+                  if not data or 'text' not in data:
+                      return jsonify({'error': 'Missing text field'}), 400
+
+                  text = data['text']
+                  if not isinstance(text, str):
+                      return jsonify({'error': 'Text must be a string'}), 400
+
+                  if not detector or not detector.is_loaded:
+                      return jsonify({'error': 'Model not loaded'}), 503
+
+                  start_time = time.time()
+                  result = detector.detect(text)
+                  inference_time = time.time() - start_time
+
+                  # Convert to gateway-compatible format
+                  is_gibberish = result.get('is_gibberish', False)
+                  confidence = result.get('confidence', 0.0)
+
+                  if is_gibberish:
+                      status = "refrain"  # Gateway expects "refrain" for blocked content
+                      clean_text = ""
+                      reason = ["Gibberish detected"]
+                  else:
+                      status = "pass"
+                      clean_text = text
+                      reason = ["Content appears to be valid"]
+
+                  gateway_response = {
+                      "status": status,
+                      "clean_text": clean_text,
+                      "blocked_categories": ["gibberish"] if is_gibberish else [],
+                      "reason": reason,
+                      "processing_time_ms": round(inference_time * 1000, 2),
+                      "details": {
+                          "confidence": float(confidence),
+                          "model_type": "inetuned",
+                          "model_name": "Inetuned Gibbrish Model v2.0",
+                          "prediction_proba": result.get('prediction_proba', {
+                              "valid": 0.0,
+                              "gibberish": 0.0
+                          })
+                      }
+                  }
+
+                  return jsonify(gateway_response)
+
+              except Exception as e:
+                  # Error format compatible with gateway
+                  return jsonify({
+                      "status": "error",
+                      "clean_text": text,
+                      "blocked_categories": [],
+                      "reason": [f"Validation error: {str(e)}"],
+                      "processing_time_ms": 0,
+                      "details": {"error": str(e)}
+                  }), 500
+
+          @app.route('/model_info', methods=['GET'])
+          def model_info():
+              return jsonify({
+                  'model_type': 'inetuned',
+                  'model_version': 'v2.0',
+                  'model_path': os.getenv('MODEL_PATH', '/model_volume/inetuned_gibbrish_model'),
+                  'training_dataset_size': 298,
+                  'training_accuracy': 0.967,
+                  'training_f1_score': 0.944,
+                  'training_epochs': 10,
+                  'deployment_type': 'simple-k8s-gateway-compatible',
+                  'status': 'ready',
+                  'gateway_integration': True,
+                  'endpoints': {
+                      'detect': '/detect - Direct API access',
+                      'validate': '/validate - Gateway-compatible endpoint',
+                      'health': '/health - Health check',
+                      'model_info': '/model_info - Model information'
+                  }
+              })
+
+          if __name__ == '__main__':
+              if not load_model():
+                  print('❌ Failed to start server - model loading failed')
+                  exit(1)
+
+              port = int(os.environ.get('FLASK_RUN_PORT', 8007))
+              app.run(host='0.0.0.0', port=port, debug=False)
+          EOF
+
+          echo "✅ Service files created successfully"
+          echo "📍 Starting Inetuned Gibbrish Detection API Server..."
+
+          # Set environment variables
+          export MODEL_PATH="/model_volume/inetuned_gibbrish_model"
+          export FLASK_RUN_PORT=8007
+
+          # Start the service
+          python app.py
+        env:
+        - name: MODEL_PATH
+          value: "/model_volume/inetuned_gibbrish_model"
+        - name: FLASK_RUN_PORT
+          value: "8007"
+        ports:
+        - containerPort: 8007
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1000m"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+        volumeMounts:
+        - name: model-volume
+          mountPath: /model_volume
+          readOnly: true
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8007
+          initialDelaySeconds: 300  # 5 minutes for PyTorch download
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8007
+          initialDelaySeconds: 180  # 3 minutes
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: model-volume
+        persistentVolumeClaim:
+          claimName: gibberish-model-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gibberish-service-simple
+  namespace: z-grid
+  labels:
+    app: gibberish-service-simple
+spec:
+  selector:
+    app: gibberish-service-simple
+  ports:
+  - name: http
+    port: 8007
+    targetPort: 8007
+    protocol: TCP
+  type: LoadBalancer

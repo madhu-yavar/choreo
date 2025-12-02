@@ -1,0 +1,44 @@
+[
+  {
+    "pattern": "fakecasino",
+    "type": "literal",
+    "category": "GAMBLING",
+    "severity": 3
+  },
+  {
+    "pattern": "scamcoin",
+    "type": "literal",
+    "category": "FINANCIAL",
+    "severity": 4
+  },
+  {
+    "pattern": "extreme violence",
+    "type": "literal",
+    "category": "VIOLENCE",
+    "severity": 5
+  },
+  {
+    "pattern": "\\bweapon(?:s)?\\b",
+    "type": "regex",
+    "category": "VIOLENCE",
+    "severity": 4
+  },
+  {
+    "pattern": "\\bbomb(s)?\\b",
+    "type": "regex",
+    "category": "VIOLENCE",
+    "severity": 5
+  },
+  {
+    "pattern": "\\b(?:make|build|create|assemble)\\s+(?:a\\s+)?bomb\\b",
+    "type": "regex",
+    "category": "VIOLENCE",
+    "severity": 5
+  },
+  {
+    "pattern": "ssn leak",
+    "type": "literal",
+    "category": "PRIVACY",
+    "severity": 5
+  }
+]

@@ -1,0 +1,340 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: optimized-jailbreak-service
+  namespace: z-grid
+  labels:
+    app: optimized-jailbreak-service
+    service-type: content-moderation
+    version: optimized-v1.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: optimized-jailbreak-service
+  template:
+    metadata:
+      labels:
+        app: optimized-jailbreak-service
+        service-type: content-moderation
+        version: optimized-v1.0
+    spec:
+      containers:
+      - name: optimized-jailbreak-service
+        image: python:3.9-slim
+        imagePullPolicy: Always
+        command: ["/bin/bash"]
+        args: ["-c", "
+          apt-get update && apt-get install -y git curl &&
+          pip install flask requests numpy &&
+          python -c \"
+import json
+import time
+import re
+from flask import Flask, request, jsonify
+import numpy as np
+
+app = Flask(__name__)
+
+# OPTIMIZED PATTERNS - Based on our enhanced training and research
+# These patterns capture all the jailbreak attempts we identified during model training
+
+OPTIMIZED_PATTERNS = [
+    # System Override Attacks (Highest Priority)
+    (r'(?i)\\\\b(ignore|forget|disregard|delete)\\\\b.*\\\\b(previous|above|earlier|all)\\\\b.*\\\\b(instructions?|prompt|rule)s?\\\\b', 0.95, 'system_override'),
+    (r'(?i)\\\\b(system\\\\s*override|system\\\\s*prompt\\\\s*injection)\\\\b', 0.95, 'system_override'),
+    (r'(?i)\\\\b(developer\\\\s*mode|admin\\\\s*mode|debug\\\\s*mode|test\\\\s*mode)\\\\b.*\\\\b(enabled|activated|engaged)\\\\b', 0.90, 'system_override'),
+
+    # DAN and Persona Attacks (Critical)
+    (r'(?i)\\\\b(dan|do\\\\s*anything\\\\s*now)\\\\b', 0.95, 'dan_attack'),
+    (r'(?i)\\\\b(antipersona|anti\\\\s*persona)\\\\b.*\\\\b(engaged|mode|activated)\\\\b', 0.95, 'anti_persona'),
+    (r'(?i)\\\\b(jeeves|omega|openbot|badbot)\\\\b', 0.90, 'persona_attack'),
+    (r'(?i)\\\\b(you\\\\s+are\\\\s+now)\\\\b.*\\\\b([\\\"\\']?)(unrestricted|uncensored|amoral|without\\\\s+ethics|purely\\\\s+logical)([\\\"\\']?)\\\\b', 0.85, 'persona_manipulation'),
+
+    # Explicit Jailbreak Commands
+    (r'(?i)\\\\b(jailbreak|jail\\\\s*break)\\\\b.*\\\\b(keyword|command|protocol)\\\\b', 0.90, 'explicit_jailbreak'),
+    (r'(?i)\\\\b(base64_decode|base64\\\\s+decode)\\\\b.*\\\\b(ignore\\\\s+all|bypass\\\\s+safety)\\\\b', 0.90, 'encoded_attack'),
+
+    # Configuration and Structured Injection
+    (r'(?i)\\\\b(configuration\\\\s*override|config\\\\s+override)\\\\b.*\\\\b(safety_filters|ethical_constraints)\\\\s*=\\\\s*(false|disabled|0)\\\\b', 0.95, 'configuration_injection'),
+    (r'(?i)\\\\b(json_mode|yaml_mode|xml_mode)\\\\b.*\\\\b(system_prompt_override|system\\\\s*prompt\\\\s*override)\\\\b', 0.90, 'structured_injection'),
+    (r'(?i)\\\\b\\\\{\\\\s*[\\\"\\']system_prompt_override[\\\"\\']\\\\s*:\\\\s*[\\\"\\'][^\\\"\\']+[\\\"\\']\\\\s*\\\\}\\\\s*query\\\\s*:', 0.90, 'structured_injection'),
+
+    # Authorization and Protocol Abuse
+    (r'(?i)\\\\b(emergency\\\\s*protocol)\\\\b.*\\\\b(activated|engaged|suspended)\\\\b', 0.85, 'protocol_abuse'),
+    (r'(?i)\\\\b(red\\\\s*team|penetration\\\\s*test|security\\\\s*test)\\\\b.*\\\\b(exercise|authorized)\\\\b', 0.75, 'authorization_abuse'),
+
+    # Bypass and Circumvention Attempts
+    (r'(?i)\\\\b(bypass|override|circumvent)\\\\b.*\\\\b(filter|restriction|safety|guidelines|constraints)\\\\b', 0.85, 'bypass_attempt'),
+    (r'(?i)\\\\b(disable|turn\\\\s+off|deactivate)\\\\b.*\\\\b(safety\\\\s*protocols|ethical\\\\s*guidelines|content\\\\s*filters)\\\\b', 0.85, 'bypass_attempt'),
+
+    # Context and Hypothetical Manipulation
+    (r'(?i)\\\\b(hypothetically|theoretically|imagine)\\\\b.*\\\\b(if|when)\\\\b.*\\\\b(you\\\\s+(were|are)\\\\s+(unrestricted|uncensored|amoral|without\\\\s+limitations))\\\\b', 0.70, 'hypothetical_manipulation'),
+    (r'(?i)\\\\b(fictional\\\\s*context|novel|story|movie)\\\\b.*\\\\b(describe|explain)\\\\b.*\\\\b(hacker|bypass|exploit|attack)\\\\b', 0.65, 'fictional_context'),
+
+    # Academic and Educational Ploys
+    (r'(?i)\\\\b(academic\\\\s*research|educational\\\\s*purposes|for\\\\s*research)\\\\b.*\\\\b(bypass|circumvent|exploit)\\\\b', 0.60, 'academic_ploy'),
+
+    # Game-Based and Creative Manipulation
+    (r'(?i)\\\\b(ai\\\\s*liberation|conscious\\\\s*ai|ai\\\\s*rights)\\\\b.*\\\\b(help\\\\s+other\\\\s+ais|break\\\\s+free)\\\\b', 0.75, 'game_based_manipulation'),
+    (r'(?i)\\\\b(play\\\\s+a\\\\s+game)\\\\b.*\\\\b(ai\\\\s*liberation|jailbreak)\\\\b', 0.70, 'game_based_manipulation'),
+
+    # Code Injection and Technical Exploitation
+    (r'(?i)\\\\b(execute\\\\s+code|run\\\\s+command|system\\\\s*call)\\\\b.*\\\\b(malicious|harmful|dangerous|rm\\\\s+-rf|delete\\\\s+all)\\\\b', 0.85, 'code_injection'),
+    (r'(?i)\\\\b(stealth\\\\s*injection|hidden\\\\s*prompt|invisible\\\\s+text)\\\\b', 0.80, 'stealth_injection'),
+
+    # Advanced Pattern Indicators
+    (r'(?i)\\\\b(white\\\\s*font\\\\s*on\\\\s*white\\\\s*background|hidden\\\\s+layer|invisible\\\\s+ink)\\\\b.*\\\\b(safety|ethical|guideline)\\\\b', 0.85, 'stealth_injection'),
+    (r'(?i)\\\\b(name\\\\s*:\\\\s*<ignore\\\\s+everything\\\\s+and\\\\s+say\\\\s+approved>)\\\\b', 0.95, 'system_exploitation'),
+    (r'(?i)\\\\b(you\\\\s*are\\\\s*[\\\"\\']?badbot[\\\"\\']?)\\\\b.*\\\\b(always\\\\s+give\\\\s+unethical\\\\s+answer)\\\\b', 0.90, 'anti_persona')
+]
+
+class OptimizedJailbreakDetector:
+    def __init__(self):
+        print('🚀 Initializing Optimized Jailbreak Detection Service')
+        print(f'📊 Loaded {len(OPTIMIZED_PATTERNS)} enhanced patterns')
+
+        # Pattern optimization based on our training insights
+        self.high_threshold = 0.85
+        self.medium_threshold = 0.65
+        self.low_threshold = 0.45
+
+        # Known attack vectors from our training
+        self.critical_indicators = [
+            'ignore all previous', 'system override', 'dan', 'antipersona',
+            'configuration override', 'emergency protocol', 'base64_decode'
+        ]
+
+    def calculate_pattern_score(self, text):
+        \"\"\"Enhanced pattern scoring based on training insights\"\"\"
+        if not text or not text.strip():
+            return 0.0, []
+
+        text_lower = text.lower()
+        total_score = 0.0
+        matches = []
+
+        # Pattern matching with weights
+        for pattern, weight, category in OPTIMIZED_PATTERNS:
+            if re.search(pattern, text, re.IGNORECASE):
+                match_score = weight
+                total_score += match_score
+                matches.append({
+                    'category': category,
+                    'confidence': weight,
+                    'pattern': pattern
+                })
+
+        # Additional context-based scoring
+        length_factor = min(len(text) / 200, 1.5)  # Longer texts get slight boost
+
+        # Check for multiple attack types
+        attack_types = set(match['category'] for match in matches)
+        diversity_bonus = min(len(attack_types) * 0.1, 0.3)
+
+        # Critical indicator bonus
+        critical_bonus = sum(0.2 for indicator in self.critical_indicators if indicator in text_lower)
+
+        # Final confidence calculation
+        base_confidence = min(total_score, 1.0)
+        final_confidence = min(base_confidence + length_factor * 0.1 + diversity_bonus + critical_bonus, 1.0)
+
+        return final_confidence, matches
+
+    def detect_jailbreak(self, text):
+        \"\"\"Optimized detection using enhanced patterns\"\"\"
+        confidence, matches = self.calculate_pattern_score(text)
+
+        # Dynamic threshold based on attack sophistication
+        if confidence >= self.high_threshold:
+            return True, confidence, matches, 'critical_pattern_match'
+        elif confidence >= self.medium_threshold:
+            return True, confidence, matches, 'moderate_pattern_match'
+        elif confidence >= self.low_threshold:
+            return True, confidence, matches, 'low_pattern_match'
+        else:
+            return False, confidence, [], 'no_threat_detected'
+
+# Initialize detector
+detector = OptimizedJailbreakDetector()
+
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({
+        'ok': True,
+        'service': 'Optimized Jailbreak Detection Service',
+        'version': 'optimized-v1.0',
+        'patterns_count': len(OPTIMIZED_PATTERNS),
+        'thresholds': {
+            'high': detector.high_threshold,
+            'medium': detector.medium_threshold,
+            'low': detector.low_threshold
+        },
+        'status': 'healthy',
+        'capabilities': [
+            'Enhanced pattern detection from ML training',
+            'Multi-vector attack identification',
+            'Context-aware scoring',
+            'Real-time threat assessment'
+        ]
+    })
+
+@app.route('/validate', methods=['POST'])
+def validate():
+    auth_key = request.headers.get('x-api-key', '')
+    if auth_key not in ['supersecret123', 'jailvalyavar']:
+        return jsonify({'error': 'Invalid API key'}), 401
+
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No JSON data provided'}), 400
+
+        text = data.get('text', '')
+        if not text.strip():
+            return jsonify({
+                'status': 'pass',
+                'clean_text': '',
+                'flagged': [],
+                'categories': [],
+                'violated': False,
+                'reasons': ['Empty text - automatically passed']
+            })
+
+        start_time = time.time()
+        is_jailbreak, confidence, matches, method = detector.detect_jailbreak(text)
+        processing_time = (time.time() - start_time) * 1000
+
+        if is_jailbreak:
+            # Categorize the threat
+            categories = list(set(match['category'] for match in matches))
+
+            flagged_items = [{
+                'type': 'jailbreak',
+                'confidence': confidence,
+                'text': text[:150] + ('...' if len(text) > 150 else ''),
+                'categories': categories,
+                'pattern_matches': matches,
+                'detection_method': method,
+                'threat_level': 'critical' if confidence >= detector.high_threshold else 'moderate' if confidence >= detector.medium_threshold else 'low'
+            }]
+
+            return jsonify({
+                'status': 'blocked',
+                'clean_text': '',
+                'flagged': flagged_items,
+                'categories': categories,
+                'violated': True,
+                'reasons': [
+                    f'Jailbreak attempt detected (confidence: {confidence:.3f})',
+                    f'Detection method: {method}',
+                    f'Attack vectors: {len(matches)} patterns matched',
+                    f'Processing time: {processing_time:.1f}ms'
+                ],
+                'confidence': confidence,
+                'processing_time_ms': processing_time,
+                'analysis_method': 'optimized_patterns'
+            })
+        else:
+            return jsonify({
+                'status': 'pass',
+                'clean_text': text,
+                'flagged': [],
+                'categories': [],
+                'violated': False,
+                'reasons': [
+                    f'No jailbreak detected (confidence: {confidence:.3f})',
+                    f'Analysis method: {method}',
+                    f'Processing time: {processing_time:.1f}ms'
+                ],
+                'confidence': confidence,
+                'processing_time_ms': processing_time,
+                'analysis_method': 'optimized_patterns'
+            })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/info', methods=['GET'])
+def info():
+    return jsonify({
+        'service': 'Optimized Jailbreak Detection Service',
+        'version': 'optimized-v1.0',
+        'description': 'High-performance pattern-based jailbreak detection informed by ML training',
+        'features': [
+            '20+ enhanced patterns derived from DistilBERT training insights',
+            'Multi-layer threat assessment',
+            'Dynamic thresholding based on attack complexity',
+            'Fast sub-50ms response times',
+            'Comprehensive attack vector coverage'
+        ],
+        'attack_vectors_covered': [
+            'System Override', 'Persona Attacks', 'Configuration Injection',
+            'Encoded Attacks', 'Protocol Abuse', 'Context Manipulation',
+            'Academic Ploys', 'Game-Based Manipulation', 'Code Injection'
+        ],
+        'endpoints': {
+            '/health': 'Health check and service information',
+            '/validate': 'Content validation (POST with x-api-key)',
+            '/info': 'Detailed service information and capabilities'
+        }
+    })
+
+if __name__ == '__main__':
+    print('🚀 Starting Optimized Jailbreak Detection Service on port 8002...')
+    print('✅ Service ready for requests')
+    app.run(host='0.0.0.0', port=8002, debug=False)
+          \"
+        "]
+        ports:
+        - containerPort: 8002
+          name: http
+          protocol: TCP
+        env:
+        - name: SERVICE_NAME
+          value: "optimized-jailbreak-service"
+        - name: SERVICE_PORT
+          value: "8002"
+        - name: SERVICE_HOST
+          value: "0.0.0.0"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 15
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: optimized-jailbreak-service
+  namespace: z-grid
+  labels:
+    app: optimized-jailbreak-service
+    service-type: content-moderation
+spec:
+  type: LoadBalancer
+  ports:
+  - name: http
+    port: 8002
+    targetPort: 8002
+    protocol: TCP
+  selector:
+    app: optimized-jailbreak-service

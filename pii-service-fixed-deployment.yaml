@@ -1,0 +1,145 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pii-service-fixed
+  namespace: z-grid
+  labels:
+    app: pii-service-fixed
+    version: v3.1
+    service-type: pii-detection
+    environment: production
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: pii-service-fixed
+  template:
+    metadata:
+      labels:
+        app: pii-service-fixed
+        version: v3.1
+        service-type: pii-detection
+    spec:
+      containers:
+      - name: pii-service-fixed
+        image: python:3.11-slim
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        env:
+        - name: API_KEY
+          value: "supersecret123"
+        - name: ENVIRONMENT
+          value: "production"
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: ENABLE_INDIAN_TAX_IDS
+          value: "true"
+        - name: ENABLE_GLINER_SUPPORT
+          value: "true"
+        - name: GLINER_MODEL
+          value: "urchade/gliner_small-v2.1"
+        - name: GLINER_THRESHOLD
+          value: "0.8"
+        - name: PLACEHOLDERS
+          value: '{"DEFAULT": "[REDACTED]", "EMAIL_ADDRESS": "[EMAIL]", "PHONE_NUMBER": "[PHONE]", "PERSON": "[PERSON]", "ORGANIZATION": "[ORG]", "LOCATION": "[LOCATION]", "IN_AADHAAR": "[AADHAAR]", "IN_PAN": "[PAN]", "IN_PASSPORT": "[PASSPORT]", "MAC_ADDRESS": "[MAC]", "US_SSN": "[SSN]", "CREDIT_CARD": "[CARD]"}'
+        - name: ENTITIES
+          value: "EMAIL_ADDRESS,PHONE_NUMBER,CREDIT_CARD,US_SSN,US_PASSPORT,IP_ADDRESS,IBAN_CODE,PERSON,LOCATION,ORGANIZATION,IN_AADHAAR,IN_PAN,IN_PASSPORT,MAC_ADDRESS,BANK_ACCOUNT,BANK_ROUTING,US_DRIVER_LICENSE,MEDICAL_ID,DATE_TIME,DATE,TIME,MONEY,CURRENCY,AMOUNT,NRP,URL,DOMAIN_NAME"
+        command: ["/bin/bash"]
+        args:
+        - -c
+        - |
+          echo "Installing dependencies..."
+          apt-get update && apt-get install -y --no-install-recommends \
+            gcc \
+            g++ \
+            && rm -rf /var/lib/apt/lists/*
+
+          pip install --no-cache-dir \
+            fastapi==0.115.2 \
+            uvicorn[standard]==0.30.6 \
+            presidio-analyzer==2.2.355 \
+            presidio-anonymizer==2.2.355 \
+            spacy==3.7.2 \
+            python-multipart==0.0.6 \
+            pydantic==2.5.0 \
+            python-dotenv==1.0.0 \
+            && python -m spacy download en_core_web_sm
+
+          # Install GLiNER for enhanced NER
+          pip install --no-cache-dir gliner
+
+          echo "Starting PII Service with fixes v3.1..."
+          cd /app && python app.py
+        volumeMounts:
+        - name: pii-service-code
+          mountPath: /app
+        resources:
+          requests:
+            cpu: 500m
+            memory: 2Gi
+          limits:
+            cpu: 1000m
+            memory: 4Gi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 90
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: pii-service-code
+        configMap:
+          name: pii-service-code-fixed
+          defaultMode: 0755
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 60
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pii-service-fixed-service
+  namespace: z-grid
+  labels:
+    app: pii-service-fixed
+    service-type: pii-detection
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+    name: http
+  selector:
+    app: pii-service-fixed
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pii-service-code-fixed
+  namespace: z-grid
+  labels:
+    app: pii-service-fixed
+    version: v3.1
+data:
+  # Copy the entire pii_service directory including app.py with fixes
+  # This will need to be created with the current pii_service content

@@ -1,0 +1,82 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pii-service-config
+  namespace: z-grid
+  labels:
+    app: pii-service-v2
+    version: "2.0"
+data:
+  # Application Configuration
+  app.env: |
+    PYTHONUNBUFFERED=1
+    LOG_LEVEL=INFO
+    MAX_WORKERS=4
+    UVICORN_WORKERS=4
+    UVICORN_TIMEOUT=120
+    UVICORN_KEEP_ALIVE=2
+
+  # PII Service Configuration
+  pii_config.json: |
+    {
+      "version": "2.0",
+      "features": {
+        "latest_gliner": true,
+        "ip_conflict_resolution": true,
+        "medical_context_support": true,
+        "enhanced_credit_card_detection": true
+      },
+      "models": {
+        "gliner_version": "0.2.24",
+        "presidio_version": "2.2.31",
+        "spacy_model": "en_core_web_sm"
+      },
+      "recognizers": {
+        "custom_phone": true,
+        "custom_ssn": true,
+        "date_of_birth": true,
+        "credit_card_enhanced": true,
+        "medical_id": true,
+        "bank_account": true,
+        "bank_routing": true,
+        "mac_address": true,
+        "ip_address": false
+      },
+      "performance": {
+        "cache_enabled": true,
+        "batch_processing": true,
+        "max_text_length": 10000
+      }
+    }
+
+  # Custom Entities Configuration
+  custom_entities.json: |
+    []
+
+  # Custom Thresholds Configuration
+  custom_thresholds.json: |
+    {
+      "PHONE_NUMBER": 0.6,
+      "US_SSN": 0.8,
+      "EMAIL_ADDRESS": 0.9,
+      "CREDIT_CARD": 0.9,
+      "DATE_OF_BIRTH": 0.8,
+      "MEDICAL_ID": 0.8,
+      "BANK_ACCOUNT": 0.7,
+      "BANK_ROUTING": 0.9,
+      "MAC_ADDRESS": 0.95
+    }
+
+  # Custom Placeholders Configuration
+  custom_placeholders.json: |
+    {
+      "PHONE_NUMBER": "[PHONE]",
+      "US_SSN": "[SSN]",
+      "EMAIL_ADDRESS": "[EMAIL]",
+      "CREDIT_CARD": "[CARD]",
+      "DATE_OF_BIRTH": "[DOB]",
+      "MEDICAL_ID": "[MEDICAL-ID]",
+      "BANK_ACCOUNT": "[ACCOUNT]",
+      "BANK_ROUTING": "[ROUTING]",
+      "MAC_ADDRESS": "[MAC]"
+    }

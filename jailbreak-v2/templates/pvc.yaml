@@ -1,0 +1,31 @@
+{{- /*
+PVC template for model storage
+*/ -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "jailbreak-distilbert.fullname" . }}-pvc
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "jailbreak-distilbert.labels" . | nindent 4 }}
+    app.kubernetes.io/component: storage
+    storage-type: model-cache
+  annotations:
+    description: "PVC for optimized jailbreak detection model storage"
+    model-path: "{{ .Values.model.path }}"
+    model-size: "{{ .Values.model.maxSize }}"
+    model-version: "{{ .Values.model.version }}"
+
+spec:
+  accessModes:
+    {{- toYaml .Values.storage.accessModes | nindent 4 }}
+
+  resources:
+    requests:
+      storage: {{ .Values.storage.size }}
+
+  {{- if .Values.storage.storageClassName }}
+  storageClassName: {{ .Values.storage.storageClassName }}
+  {{- else if .Values.global.storageClass }}
+  storageClassName: {{ .Values.global.storageClass }}
+  {{- end }}

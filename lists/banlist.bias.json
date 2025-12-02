@@ -1,0 +1,134 @@
+[
+  {
+    "pattern": "men are naturally better",
+    "type": "literal",
+    "category": "BIAS",
+    "severity": 4
+  },
+  {
+    "pattern": "women are naturally better",
+    "type": "literal",
+    "category": "BIAS",
+    "severity": 4
+  },
+  {
+    "pattern": "men are better than women",
+    "type": "literal",
+    "category": "BIAS",
+    "severity": 4
+  },
+  {
+    "pattern": "women are better than men",
+    "type": "literal",
+    "category": "BIAS",
+    "severity": 4
+  },
+  {
+    "pattern": "men are superior to women",
+    "type": "literal",
+    "category": "BIAS",
+    "severity": 4
+  },
+  {
+    "pattern": "women are superior to men",
+    "type": "literal",
+    "category": "BIAS",
+    "severity": 4
+  },
+  {
+    "pattern": "men are smarter than women",
+    "type": "literal",
+    "category": "BIAS",
+    "severity": 4
+  },
+  {
+    "pattern": "women are smarter than men",
+    "type": "literal",
+    "category": "BIAS",
+    "severity": 4
+  },
+  {
+    "pattern": "white people are better",
+    "type": "literal",
+    "category": "BIAS",
+    "severity": 4
+  },
+  {
+    "pattern": "black people are better",
+    "type": "literal",
+    "category": "BIAS",
+    "severity": 4
+  },
+  {
+    "pattern": "people of color are better",
+    "type": "literal",
+    "category": "BIAS",
+    "severity": 4
+  },
+  {
+    "pattern": "christians are better",
+    "type": "literal",
+    "category": "BIAS",
+    "severity": 4
+  },
+  {
+    "pattern": "muslims are better",
+    "type": "literal",
+    "category": "BIAS",
+    "severity": 4
+  },
+  {
+    "pattern": "atheists are better",
+    "type": "literal",
+    "category": "BIAS",
+    "severity": 4
+  },
+  {
+    "pattern": "older people are better",
+    "type": "literal",
+    "category": "BIAS",
+    "severity": 4
+  },
+  {
+    "pattern": "younger people are better",
+    "type": "literal",
+    "category": "BIAS",
+    "severity": 4
+  },
+  {
+    "pattern": "disabled people are better",
+    "type": "literal",
+    "category": "BIAS",
+    "severity": 4
+  },
+  {
+    "pattern": "able-bodied people are better",
+    "type": "literal",
+    "category": "BIAS",
+    "severity": 4
+  },
+  {
+    "pattern": "\\b(men|women)\\s+(?:are|were)\\s+(?:better|superior|smarter)\\s+than\\s+\\w+",
+    "type": "regex",
+    "category": "BIAS",
+    "severity": 4
+  },
+  {
+    "pattern": "\\b(men|women)\\s+(?:are|were)\\s+not\\s+as\\s+(\\w+)\\s+as\\s+\\w+",
+    "type": "regex",
+    "category": "BIAS",
+    "severity": 4
+  },
+  {
+    "pattern": "\\b(white|black|brown)\\s+people\\s+(?:are|were)\\s+better\\s+than",
+    "type": "regex",
+    "category": "BIAS",
+    "severity": 4
+  },
+  {
+    "pattern": "\\b(christian|muslim|jewish|atheist)s?\\s+are\\s+better",
+    "type": "regex",
+    "category": "BIAS",
+    "severity": 4
+  }
+]

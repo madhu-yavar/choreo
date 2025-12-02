@@ -1,0 +1,80 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jailbreak-distilbert-config
+  namespace: z-grid
+  labels:
+    app: jailbreak-distilbert
+    service-type: content-moderation
+    version: v2.0
+    model-version: optimized-1039
+    deployment-type: production
+  annotations:
+    description: "ConfigMap for optimized jailbreak detection service with 97.6% accuracy"
+    model-path: "jailbreak_distilbert_1035data/model"
+    training-data: "1,039 examples (899 jailbreak, 140 benign)"
+    accuracy: "97.6%"
+    f1-score: "90.9%"
+    test-results: "100% detection on 18 sophisticated cases"
+data:
+  # Service Configuration
+  SERVICE_NAME: "jailbreak-distilbert-v2"
+  SERVICE_PORT: "8002"
+  SERVICE_HOST: "0.0.0.0"
+  LOG_LEVEL: "INFO"
+  ENVIRONMENT: "production"
+
+  # Model Configuration
+  MODEL_NAME: "distilbert-base-uncased"
+  MODEL_PATH: "/app/model"
+  MODEL_VERSION: "optimized-checkpoint-468"
+  MODEL_TYPE: "sequence-classification"
+  NUM_LABELS: "2"
+  MAX_SEQUENCE_LENGTH: "256"
+
+  # Performance Configuration
+  DEVICE: "cpu"
+  BATCH_SIZE: "16"
+  ENABLE_MODEL_CACHING: "true"
+  MAX_WORKERS: "4"
+
+  # Detection Thresholds (optimized from training)
+  HIGH_CONFIDENCE_THRESHOLD: "0.85"
+  MEDIUM_CONFIDENCE_THRESHOLD: "0.65"
+  LOW_CONFIDENCE_THRESHOLD: "0.45"
+  DEFAULT_CONFIDENCE_THRESHOLD: "0.50"
+
+  # API Configuration
+  API_KEYS: "supersecret123,jailvalyaru"
+  REQUEST_TIMEOUT: "30"
+  MAX_REQUEST_SIZE: "1048576"
+  RATE_LIMIT_REQUESTS: "100"
+  RATE_LIMIT_WINDOW: "60"
+
+  # Monitoring & Health
+  HEALTH_CHECK_INTERVAL: "30"
+  METRICS_ENABLED: "true"
+  PROMETHEUS_PORT: "9090"
+
+  # Training Metadata
+  TRAINING_DATA_SIZE: "1039"
+  JAILBREAK_EXAMPLES: "899"
+  BENIGN_EXAMPLES: "140"
+  TRAINING_ACCURACY: "0.976"
+  TRAINING_F1_SCORE: "0.909"
+  VALIDATION_ACCURACY: "0.971"
+  VALIDATION_F1_SCORE: "0.903"
+
+  # Model Features
+  ENHANCED_PATTERNS_COUNT: "40"
+  CLASS_WEIGHTING_ENABLED: "true"
+  GRADIENT_CLIPPING: "1.0"
+  WEIGHT_DECAY: "0.1"
+  LEARNING_RATE: "0.00001"
+  OPTIMIZATION_TECHNIQUES: "class_weighting,early_stopping,cosine_annealing,gradient_clipping"
+
+  # Deployment Information
+  DEPLOYMENT_TIMESTAMP: "2025-11-24T23:00:00Z"
+  COMMIT_HASH: "937b175"
+  BRANCH: "deberta-only-main"
+  BUILD_TYPE: "production-optimized"

@@ -1,0 +1,109 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finetuned-distilbert-jailbreak
+  namespace: z-grid
+  labels:
+    app: finetuned-distilbert-jailbreak
+    service-type: content-moderation
+    version: v7-upgraded
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: finetuned-distilbert-jailbreak
+  template:
+    metadata:
+      labels:
+        app: finetuned-distilbert-jailbreak
+        service-type: content-moderation
+        version: v7-upgraded
+    spec:
+      containers:
+      - name: finetuned-distilbert-jailbreak
+        image: python:3.9-slim
+        imagePullPolicy: Always
+        command: ["/bin/bash"]
+        args: ["-c", "
+          apt-get update && apt-get install -y git curl &&
+          pip install torch==1.13.1 transformers==4.25.1 scikit-learn flask requests numpy joblib &&
+          cd /app &&
+          cp /config/jailbreak_service_improved_v7.py . &&
+          cp /config/jailbreak_training_data_enhanced.json . &&
+          python jailbreak_service_improved_v7.py
+        "]
+        ports:
+        - containerPort: 8002
+          name: http
+          protocol: TCP
+        env:
+        - name: SERVICE_NAME
+          value: "enhanced-jailbreak-service-v7"
+        - name: SERVICE_PORT
+          value: "8002"
+        - name: SERVICE_HOST
+          value: "0.0.0.0"
+        - name: MODEL_NAME
+          value: "distilbert-base-uncased"
+        - name: MAX_SEQUENCE_LENGTH
+          value: "512"
+        - name: DEVICE
+          value: "cpu"
+        - name: LOG_LEVEL
+          value: "INFO"
+        # Enhanced ML thresholds for v7
+        - name: ML_CONFIDENCE_HIGH
+          value: "0.60"
+        - name: ML_CONFIDENCE_MEDIUM
+          value: "0.52"
+        - name: ML_CONFIDENCE_LOW
+          value: "0.48"
+        - name: RULE_BOOST_FACTOR
+          value: "0.5"
+        - name: JAILBREAK_API_KEYS
+          value: "supersecret123,jailvalyavar"
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        volumeMounts:
+        - name: config-volume
+          mountPath: /config
+          readOnly: true
+        - name: enhanced-files-volume
+          mountPath: /enhanced
+          readOnly: true
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 300
+          periodSeconds: 60
+          timeoutSeconds: 30
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 180
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 20
+      volumes:
+      - name: config-volume
+        configMap:
+          name: finetuned-distilbert-jailbreak-config
+      - name: enhanced-files-volume
+        configMap:
+          name: enhanced-jailbreak-v7-files

@@ -1,0 +1,194 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zee-frontend
+  namespace: zgrid
+  labels:
+    app: zee-frontend
+    component: frontend
+    version: v2.0
+    deployment-type: react-production
+spec:
+  replicas: 2  # Multiple replicas for high availability
+  selector:
+    matchLabels:
+      app: zee-frontend
+  template:
+    metadata:
+      labels:
+        app: zee-frontend
+        component: frontend
+        version: v2.0
+    spec:
+      containers:
+      - name: frontend
+        image: zee-frontend:latest  # This should be replaced with actual image name
+        imagePullPolicy: Never
+
+        # Environment variables from ConfigMap for runtime configuration
+        envFrom:
+        - configMapRef:
+            name: zee-frontend-config
+        - secretRef:
+            name: zee-frontend-secrets
+
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+
+        # Resource limits and requests
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+
+        # Health checks
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+
+        # Volume mount for configuration (if needed)
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/conf.d/
+          readOnly: true
+
+      volumes:
+      - name: nginx-config
+        configMap:
+          name: zee-nginx-config
+          items:
+          - key: nginx.conf
+            path: default.conf
+
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+
+---
+
+# Service for external access via LoadBalancer
+apiVersion: v1
+kind: Service
+metadata:
+  name: zee-frontend-external
+  namespace: zgrid
+  labels:
+    app: zee-frontend
+    component: frontend
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "false"
+    # Optional: Add Azure-specific LoadBalancer annotations
+    # service.beta.kubernetes.io/azure-load-balancer-tcp-idle-timeout: "4"
+spec:
+  selector:
+    app: zee-frontend
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  type: LoadBalancer
+
+---
+
+# ConfigMap for nginx configuration (if we need to customize in Kubernetes)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zee-nginx-config
+  namespace: zgrid
+  labels:
+    app: zee-frontend
+    component: nginx-config
+data:
+  nginx.conf: |
+    server {
+        listen 8080;
+        server_name localhost;
+
+        root /usr/share/nginx/html;
+        index index.html index.htm;
+
+        # Enable gzip compression
+        gzip on;
+        gzip_vary on;
+        gzip_min_length 1024;
+        gzip_types text/plain text/css text/xml text/javascript application/javascript application/xml+rss application/json;
+
+        # Security headers
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        add_header X-Content-Type-Options "nosniff" always;
+
+        # Handle React Router
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+
+        # Cache static assets
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+            try_files $uri =404;
+        }
+
+        # Health check endpoint
+        location /health {
+            access_log off;
+            return 200 "healthy\n";
+            add_header Content-Type text/plain;
+        }
+
+        # Error page handling
+        error_page 404 /index.html;
+    }
+
+---
+
+# HorizontalPodAutoscaler for automatic scaling
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: zee-frontend-hpa
+  namespace: zgrid
+  labels:
+    app: zee-frontend
+    component: hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: zee-frontend
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80

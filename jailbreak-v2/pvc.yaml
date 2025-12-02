@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jailbreak-model-pvc
+  namespace: z-grid
+  labels:
+    app: jailbreak-distilbert
+    service-type: content-moderation
+    version: v2.0
+    storage-type: model-cache
+  annotations:
+    description: "PVC for optimized jailbreak detection model storage"
+    model-path: "jailbreak_distilbert_1035data/model"
+    model-size: "767MB"
+    model-version: "optimized-checkpoint-468"
+
+spec:
+  accessModes:
+  - ReadOnlyMany  # Allow multiple pods to read the model simultaneously
+
+  resources:
+    requests:
+      storage: 2Gi  # Model is 767MB, allocate 2Gi for safety
+
+  storageClassName: azurefile-premium  # Use Azure Files for shared access
+
+  # Optional: If using specific storage class for model cache
+  # storageClassName: "ssd-model-cache"

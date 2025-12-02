@@ -1,0 +1,30 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: realtime-monitoring-dashboard-ingress
+  namespace: z-grid
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  labels:
+    app: realtime-monitoring-dashboard
+    component: monitoring
+spec:
+  tls:
+  - hosts:
+    - "realtime-monitoring.20.242.183.197.nip.io"
+    secretName: realtime-monitoring-tls
+  rules:
+  - host: "realtime-monitoring.20.242.183.197.nip.io"
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: realtime-monitoring-dashboard-service
+            port:
+              number: 5000

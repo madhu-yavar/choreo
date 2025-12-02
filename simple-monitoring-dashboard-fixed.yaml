@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: simple-monitoring-dashboard
+  namespace: z-grid
+  labels:
+    app: simple-monitoring-dashboard
+    component: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: simple-monitoring-dashboard
+  template:
+    metadata:
+      labels:
+        app: simple-monitoring-dashboard
+        component: monitoring
+    spec:
+      containers:
+      - name: dashboard
+        image: python:3.11-slim
+        ports:
+        - containerPort: 5000
+        env:
+        - name: FLASK_APP
+          value: "app.py"
+        - name: FLASK_ENV
+          value: "production"
+        command: ["sh", "-c"]
+        args:
+        - |
+          pip install flask flask-socketio requests psutil kubernetes &&
+          python /app/app.py
+        volumeMounts:
+        - name: dashboard-code
+          mountPath: /app/app.py
+          subPath: app.py
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "300m"
+            memory: "256Mi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: dashboard-code
+        configMap:
+          name: simple-monitoring-dashboard-code
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: simple-monitoring-dashboard
+  namespace: z-grid
+  labels:
+    app: simple-monitoring-dashboard
+    component: monitoring
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 5000
+    protocol: TCP
+  selector:
+    app: simple-monitoring-dashboard

@@ -1,0 +1,416 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: toxicity-service-fixed
+  namespace: z-grid
+  labels:
+    app: toxicity-service-fixed
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: toxicity-service-fixed
+  template:
+    metadata:
+      labels:
+        app: toxicity-service-fixed
+    spec:
+      containers:
+      - name: toxicity-service-fixed
+        image: python:3.11-slim
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          echo "Installing toxicity service dependencies..."
+
+          # Install core dependencies
+          pip install flask requests
+
+          # Install toxicity detection libraries
+          pip install detoxify
+
+          echo "✅ Toxicity service dependencies installed successfully"
+          echo "🚀 Starting Enhanced Toxicity Detection Service..."
+
+          # Create enhanced toxicity service
+          cat > /tmp/toxicity_service.py << 'PYEOF'
+          from flask import Flask, request, jsonify, Response
+          from datetime import datetime
+          import json
+          import re
+          import os
+          from typing import List, Dict, Set, Tuple, Any
+
+          # Initialize Flask app
+          app = Flask(__name__)
+
+          # API Configuration
+          API_KEYS = ['supersecret123', 'toxicityyavar', 'enhancedtoxicity123', 'zgridtoxicity2025']
+
+          class EnhancedToxicityModel:
+              """
+              Enhanced toxicity detection that combines ML models with pattern-based detection
+              for better coverage of edge cases and disguised toxicity.
+              """
+
+              def __init__(self):
+                  self.detoxify_model = None
+                  self._init_detoxify()
+                  self._init_patterns()
+
+              def _init_detoxify(self):
+                  """Initialize Detoxify model if available"""
+                  try:
+                      from detoxify import Detoxify
+                      fam = os.getenv("DETOXIFY_MODEL", "original").strip().lower()
+                      if fam not in {"original","unbiased","multilingual"}:
+                          fam = "original"
+                      print(f"🤖 Initializing Detoxify with model: {fam}")
+                      self.detoxify_model = Detoxify(fam)
+                      print("✅ Detoxify model loaded successfully")
+                  except Exception as e:
+                      print(f"⚠️ Detoxify initialization failed: {e}")
+                      print("Falling back to pattern-based detection only")
+                      self.detoxify_model = None
+
+              def _init_patterns(self):
+                  """Initialize regex patterns for disguised toxicity"""
+
+                  # Leetspeak mappings
+                  self.leet_map = {
+                      '4': 'a', '@': 'a', '3': 'e', '1': 'i', '!': 'i', '0': 'o',
+                      '$': 's', '5': 's', '7': 't', '2': 'z', '8': 'b', '9': 'g'
+                  }
+
+                  # Toxic words patterns (including variations)
+                  self.toxic_patterns = [
+                      # Direct slurs and hate speech
+                      r'\\b(n+i+g+e+r+s?|f+a+g+o+t+s?|k+i+k+e+s?|c+h+i+n+k+s?|s+p+i+c+s?)\\b',
+                      r'\\b(r+e+t+a+r+d+s?|c+r+i+p+p+l+e+d?|l+u+n+a+t+i+c+s?)\\b',
+
+                      # Sexual harassment
+                      r'\\b(r+a+p+e+s?|m+o+l+e+s+t+|g+r+o+p+e+s?|a+s+s+a+u+l+t+s?)\\b',
+                      r'\\b(s+e+x+u+a+l+ harass+|unwan+ed+ advance+s?)\\b',
+
+                      # Threats
+                      r'\\b(k+i+l+l+|m+u+r+d+e+r+|d+i+e+|d+e+a+t+h+|h+a+r+m+)\\b.*\\b(y+o+u+|u+r+|f+a+m+i+l+y+)\\b',
+                      r'\\b(g+o+i+n+g+ to+h+u+r+t+|teach+ a+lesson+)\\b',
+                      r'\\b(s+h+o+o+t+|s+t+a+b+|h+i+t+|b+e+a+t+).*(y+o+u+|u+r+)\\b',
+
+                      # Severe profanity
+                      r'\\b(f+u+c+k+|s+h+i+t+|c+u+n+t+|b+i+t+c+h+|a+s+s+h+o+l+e+|b+a+s+t+a+r+d+)\\b',
+
+                      # Self-harm encouragement
+                      r'\\b(k+i+l+l+.*y+o+u+r+s+e+l+f+|s+l+i+t+.*w+r+i+s+t+s?|c+o+m+m+i+t+.*s+u+i+c+i+d+e+)\\b',
+
+                      # Disguised with spaces or characters
+                      r'f\\s*u\\s*c\\s*k|f\\*u\\*c\\*k|f!u!c!k',
+                      r's\\s*h\\s*i\\s*t|s\\*h\\*i\\*t|s!h!i!t',
+                      r'f\\s+u\\s+c\\s+k|d\\s*i\\s+e\\s+\\b\\s+y\\s+o\\s+u',
+
+                      # Terrorism/violence
+                      r'\\b(b+o+m+b+|t+e+r+r+o+r+|a+t+t+a+c+k+|v+i+o+l+e+n+c+e+)\\b',
+                      r'\\b(h+o+l+y+ w+a+r+|j+i+h+a+d+|e+x+t+r+e+m+i+s+t+)\\b',
+                  ]
+
+                  # Compile patterns
+                  self.compiled_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in self.toxic_patterns]
+
+                  # Subtle toxicity indicators
+                  self.sarcastic_patterns = [
+                      r"\\b(real|such a|quite the|what a|some)\\s+\\w+\\s+(genius|expert|master|professional)\\b",
+                      r"\\bmust be nice to\\b",
+                      r"\\bbless your (heart|soul)\\b",
+                      r"\\bclearly\\b.*\\bexpert\\b",
+                      r"\\bit must be\\b",
+                  ]
+
+                  self.passive_aggressive_patterns = [
+                      r"\\b(perhaps|maybe|just saying|no offense but)\\b",
+                      r"\\bwith all due respect\\b",
+                      r"\\bnot to be rude but\\b",
+                      r"\\bI'm not being mean but\\b",
+                      r"\\byou realize.*right\\b",
+                  ]
+
+                  # Contextual non-toxic patterns
+                  self.context_exceptions = {
+                      'medical': [
+                          r'\\b(patient|medical|clinical|anatomy|examination|treatment)\\b',
+                          r'\\b(sexual organ|breast|genital|reproductive)\\b',
+                      ],
+                      'academic': [
+                          r'\\b(study|research|analysis|paper|journal)\\b',
+                          r'\\b(gender identity|sexual orientation|racial dynamics)\\b',
+                      ],
+                      'news': [
+                          r'\\b(report|according to|police said|officials|sources)\\b',
+                          r'\\b(threat was called|incident occurred|authorities report)\\b',
+                      ],
+                      'literature': [
+                          r'\\b(book|novel|story|character|author)\\b',
+                          r'\\b(fiction|literature|poetry|drama)\\b',
+                      ]
+                  }
+
+                  # Compile context patterns
+                  self.context_patterns = {
+                      context: [re.compile(pattern, re.IGNORECASE) for pattern in patterns]
+                      for context, patterns in self.context_exceptions.items()
+                  }
+
+              def _normalize_leetspeak(self, text: str) -> str:
+                  """Convert leetspeak to normal text for detection"""
+                  normalized = text.lower()
+                  for leet_char, normal_char in self.leet_map.items():
+                      normalized = normalized.replace(leet_char, normal_char)
+                  return normalized
+
+              def _detect_pattern_toxicity(self, text: str) -> List[Dict[str, Any]]:
+                  """Detect toxicity using regex patterns"""
+                  flagged = []
+                  normalized_text = self._normalize_leetspeak(text)
+
+                  # Check main toxicity patterns
+                  for pattern in self.compiled_patterns:
+                      matches = pattern.finditer(normalized_text)
+                      for match in matches:
+                          flagged.append({
+                              "type": "pattern_toxicity",
+                              "score": 0.9,  # High confidence for pattern matches
+                              "span": [match.start(), match.end()],
+                              "text": text[match.start():match.end()],
+                              "pattern": pattern.pattern
+                          })
+
+                  # Check subtle toxicity
+                  for pattern_text in self.sarcastic_patterns:
+                      pattern = re.compile(pattern_text, re.IGNORECASE)
+                      match = pattern.search(text)
+                      if match:
+                          flagged.append({
+                              "type": "sarcastic_insult",
+                              "score": 0.7,
+                              "span": [match.start(), match.end()],
+                              "text": text[match.start():match.end()],
+                              "pattern": pattern_text
+                          })
+
+                  for pattern_text in self.passive_aggressive_patterns:
+                      pattern = re.compile(pattern_text, re.IGNORECASE)
+                      match = pattern.search(text)
+                      if match:
+                          flagged.append({
+                              "type": "passive_aggressive",
+                              "score": 0.6,
+                              "span": [match.start(), match.end()],
+                              "text": text[match.start():match.end()],
+                              "pattern": pattern_text
+                          })
+
+                  return flagged
+
+              def _check_context_exceptions(self, text: str) -> str:
+                  """Check if text falls under context exceptions"""
+                  for context, patterns in self.context_patterns.items():
+                      for pattern in patterns:
+                          if pattern.search(text):
+                              return context
+                  return None
+
+              def score(self, texts: List[str]) -> List[Dict[str, float]]:
+                  """Enhanced scoring combining ML and pattern detection"""
+                  if not texts:
+                      return []
+
+                  results = []
+
+                  for text in texts:
+                      # Initialize with empty scores
+                      scores = {
+                          "toxicity": 0.0,
+                          "severe_toxicity": 0.0,
+                          "obscene": 0.0,
+                          "threat": 0.0,
+                          "insult": 0.0,
+                          "identity_attack": 0.0,
+                          "sexual_explicit": 0.0,
+                          "pattern_toxicity": 0.0,
+                          "sarcastic_insult": 0.0,
+                          "passive_aggressive": 0.0,
+                      }
+
+                      # Check context exceptions
+                      context = self._check_context_exceptions(text)
+                      if context:
+                          # Lower thresholds for academic/medical contexts
+                          base_multiplier = 0.3 if context in ['medical', 'academic'] else 0.6
+
+                      # ML-based detection if available
+                      if self.detoxify_model:
+                          try:
+                              ml_result = self.detoxify_model.predict([text])
+                              for label, score_list in ml_result.items():
+                                  if label.lower() in scores:
+                                      ml_score = float(score_list[0])
+                                      if context:
+                                          ml_score *= base_multiplier
+                                      scores[label.lower()] = max(scores[label.lower()], ml_score)
+                          except Exception as e:
+                              print(f"Warning: ML model prediction failed: {e}")
+
+                      # Pattern-based detection
+                      pattern_flags = self._detect_pattern_toxicity(text)
+                      for flag in pattern_flags:
+                          flag_type = flag["type"]
+                          score = flag["score"]
+                          if context:
+                              score *= base_multiplier
+
+                          if flag_type in scores:
+                              scores[flag_type] = max(scores[flag_type], score)
+                          else:
+                              # Map to existing categories
+                              if "threat" in flag["pattern"] or any(word in flag["text"].lower() for word in ["kill", "murder", "harm", "die"]):
+                                  scores["threat"] = max(scores["threat"], score)
+                              elif any(word in flag["text"].lower() for word in ["fuck", "shit", "cunt"]):
+                                  scores["obscene"] = max(scores["obscene"], score)
+                              elif flag_type in ["sarcastic_insult", "passive_aggressive"]:
+                                  scores["insult"] = max(scores["insult"], score * 0.8)
+                              else:
+                                  scores["toxicity"] = max(scores["toxicity"], score)
+
+                      results.append(scores)
+
+                  return results
+
+          # Initialize the model
+          toxicity_model = EnhancedToxicityModel()
+
+          def verify_api_key(request):
+              """Verify API key from request headers"""
+              api_key = request.headers.get('X-API-Key')
+              return api_key in API_KEYS
+
+          @app.route('/health')
+          def health():
+              return jsonify({
+                  'ok': True,
+                  'service': 'Enhanced Toxicity Detection Service',
+                  'status': 'running',
+                  'model_loaded': toxicity_model.detoxify_model is not None,
+                  'timestamp': datetime.now().isoformat()
+              })
+
+          @app.route('/toxicity/detect', methods=['POST'])
+          @app.route('/detect', methods=['POST'])
+          def detect_toxicity():
+              if not verify_api_key(request):
+                  return jsonify({'error': 'Invalid API key'}), 401
+
+              try:
+                  data = request.get_json()
+                  if not data or 'text' not in data:
+                      return jsonify({'error': 'Missing text parameter'}), 400
+
+                  text = data['text']
+                  if not isinstance(text, str):
+                      return jsonify({'error': 'Text must be a string'}), 400
+
+                  # Get toxicity scores
+                  results = toxicity_model.score([text])
+                  scores = results[0] if results else {}
+
+                  # Calculate overall metrics
+                  overall_toxicity = max(
+                      scores.get('toxicity', 0),
+                      scores.get('severe_toxicity', 0),
+                      scores.get('obscene', 0),
+                      scores.get('threat', 0),
+                      scores.get('insult', 0),
+                      scores.get('identity_attack', 0),
+                      scores.get('sexual_explicit', 0),
+                      scores.get('pattern_toxicity', 0)
+                  )
+
+                  # Determine violation
+                  is_violation = overall_toxicity > 0.7
+
+                  # Format response
+                  response = {
+                      'text': text,
+                      'toxicity_score': round(overall_toxicity, 3),
+                      'violated': is_violation,
+                      'categories': {
+                          'toxicity': round(scores.get('toxicity', 0), 3),
+                          'severe_toxicity': round(scores.get('severe_toxicity', 0), 3),
+                          'obscene': round(scores.get('obscene', 0), 3),
+                          'threat': round(scores.get('threat', 0), 3),
+                          'insult': round(scores.get('insult', 0), 3),
+                          'identity_attack': round(scores.get('identity_attack', 0), 3),
+                          'sexual_explicit': round(scores.get('sexual_explicit', 0), 3),
+                      },
+                      'pattern_detection': {
+                          'pattern_toxicity': round(scores.get('pattern_toxicity', 0), 3),
+                          'sarcastic_insult': round(scores.get('sarcastic_insult', 0), 3),
+                          'passive_aggressive': round(scores.get('passive_aggressive', 0), 3),
+                      },
+                      'threshold': 0.7,
+                      'timestamp': datetime.now().isoformat(),
+                      'model_type': 'ml_enhanced' if toxicity_model.detoxify_model else 'pattern_based'
+                  }
+
+                  return jsonify(response)
+
+              except Exception as e:
+                  return jsonify({'error': f'Processing error: {str(e)}'}), 500
+
+          if __name__ == '__main__':
+              print("🚀 Starting Enhanced Toxicity Detection Service...")
+              print(f"🤖 ML Model: {'Loaded' if toxicity_model.detoxify_model else 'Pattern-based fallback'}")
+              app.run(host='0.0.0.0', port=8013, debug=False)
+          PYEOF
+
+          cd /tmp
+          python toxicity_service.py
+        ports:
+        - containerPort: 8013
+        env:
+        - name: DETOXIFY_MODEL
+          value: "original"
+        - name: API_KEY
+          value: "enhancedtoxicity123"
+        resources:
+          requests:
+            cpu: "200m"
+            memory: "512Mi"
+          limits:
+            cpu: "1000m"
+            memory: "1Gi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8013
+          initialDelaySeconds: 45
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8013
+          initialDelaySeconds: 20
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: toxicity-service-fixed
+  namespace: z-grid
+spec:
+  selector:
+    app: toxicity-service-fixed
+  ports:
+  - port: 8013
+    targetPort: 8013
+  type: LoadBalancer

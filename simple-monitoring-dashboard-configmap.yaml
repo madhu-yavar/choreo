@@ -1,0 +1,562 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: simple-monitoring-dashboard-code
+  namespace: z-grid
+data:
+  app.py: |
+    import os
+    from flask import Flask, jsonify, request, render_template_string
+    from kubernetes import client, config
+    import psutil
+    import time
+    from datetime import datetime
+    import json
+
+    app = Flask(__name__)
+
+    # HTML Template
+    HTML_TEMPLATE = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Z-Grid Monitoring Dashboard</title>
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                min-height: 100vh;
+                color: #333;
+            }
+
+            .container {
+                max-width: 1400px;
+                margin: 0 auto;
+                padding: 20px;
+            }
+
+            .header {
+                background: rgba(255, 255, 255, 0.95);
+                backdrop-filter: blur(10px);
+                border-radius: 15px;
+                padding: 30px;
+                margin-bottom: 30px;
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+                text-align: center;
+            }
+
+            .header h1 {
+                color: #2c3e50;
+                font-size: 2.5rem;
+                margin-bottom: 10px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 15px;
+            }
+
+            .header .subtitle {
+                color: #7f8c8d;
+                font-size: 1.1rem;
+                margin-bottom: 20px;
+            }
+
+            .status-indicator {
+                display: inline-block;
+                padding: 8px 16px;
+                border-radius: 20px;
+                font-weight: bold;
+                font-size: 0.9rem;
+            }
+
+            .status-running {
+                background: #27ae60;
+                color: white;
+            }
+
+            .dashboard-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+                gap: 25px;
+                margin-bottom: 30px;
+            }
+
+            .card {
+                background: rgba(255, 255, 255, 0.95);
+                backdrop-filter: blur(10px);
+                border-radius: 15px;
+                padding: 25px;
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+                transition: transform 0.3s ease, box-shadow 0.3s ease;
+            }
+
+            .card:hover {
+                transform: translateY(-5px);
+                box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+            }
+
+            .card h3 {
+                color: #2c3e50;
+                margin-bottom: 20px;
+                font-size: 1.3rem;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+            }
+
+            .metrics-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+                gap: 15px;
+            }
+
+            .metric {
+                text-align: center;
+                padding: 15px;
+                background: #f8f9fa;
+                border-radius: 10px;
+                border-left: 4px solid #3498db;
+            }
+
+            .metric-value {
+                font-size: 1.8rem;
+                font-weight: bold;
+                color: #2c3e50;
+                margin-bottom: 5px;
+            }
+
+            .metric-label {
+                color: #7f8c8d;
+                font-size: 0.9rem;
+            }
+
+            .service-list {
+                list-style: none;
+                max-height: 400px;
+                overflow-y: auto;
+            }
+
+            .service-item {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 12px 15px;
+                margin-bottom: 10px;
+                background: #f8f9fa;
+                border-radius: 8px;
+                border-left: 4px solid #3498db;
+                transition: background 0.3s ease;
+            }
+
+            .service-item:hover {
+                background: #e9ecef;
+            }
+
+            .service-name {
+                font-weight: 600;
+                color: #2c3e50;
+            }
+
+            .service-status {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                font-size: 0.9rem;
+            }
+
+            .status-dot {
+                width: 10px;
+                height: 10px;
+                border-radius: 50%;
+            }
+
+            .status-running {
+                background: #27ae60;
+            }
+
+            .status-pending {
+                background: #f39c12;
+            }
+
+            .status-error {
+                background: #e74c3c;
+            }
+
+            .refresh-btn {
+                background: #3498db;
+                color: white;
+                border: none;
+                padding: 12px 24px;
+                border-radius: 8px;
+                font-size: 1rem;
+                cursor: pointer;
+                transition: background 0.3s ease;
+                margin: 10px;
+            }
+
+            .refresh-btn:hover {
+                background: #2980b9;
+            }
+
+            .loading {
+                text-align: center;
+                padding: 20px;
+                color: #7f8c8d;
+            }
+
+            .error {
+                background: #fee;
+                color: #c33;
+                padding: 15px;
+                border-radius: 8px;
+                margin: 10px 0;
+                border-left: 4px solid #e74c3c;
+            }
+
+            .cluster-info {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 15px;
+                margin-top: 20px;
+            }
+
+            .info-item {
+                text-align: center;
+                padding: 10px;
+                background: #ecf0f1;
+                border-radius: 8px;
+            }
+
+            .info-label {
+                color: #7f8c8d;
+                font-size: 0.8rem;
+                margin-bottom: 5px;
+            }
+
+            .info-value {
+                color: #2c3e50;
+                font-weight: bold;
+            }
+
+            @media (max-width: 768px) {
+                .container {
+                    padding: 10px;
+                }
+
+                .header h1 {
+                    font-size: 2rem;
+                }
+
+                .dashboard-grid {
+                    grid-template-columns: 1fr;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>
+                    <span>🔍</span> Z-Grid Monitoring Dashboard
+                </h1>
+                <div class="subtitle">US Central Cluster - Real-time Service Monitoring</div>
+                <div id="status" class="status-indicator status-running">Loading...</div>
+                <button class="refresh-btn" onclick="loadData()">🔄 Refresh</button>
+                <div class="cluster-info">
+                    <div class="info-item">
+                        <div class="info-label">Namespace</div>
+                        <div class="info-value" id="namespace">-</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Cluster</div>
+                        <div class="info-value">US Central</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Last Updated</div>
+                        <div class="info-value" id="lastUpdated">-</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="dashboard-grid">
+                <div class="card">
+                    <h3>🖥️ System Metrics</h3>
+                    <div class="metrics-grid">
+                        <div class="metric">
+                            <div class="metric-value" id="cpu">-</div>
+                            <div class="metric-label">CPU %</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value" id="memory">-</div>
+                            <div class="metric-label">Memory %</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value" id="disk">-</div>
+                            <div class="metric-label">Disk %</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3>⚡ Services Status</h3>
+                    <div id="servicesContent" class="loading">Loading services...</div>
+                </div>
+
+                <div class="card">
+                    <h3>🌐 External Endpoints</h3>
+                    <div id="endpointsContent" class="loading">Loading endpoints...</div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            async function loadData() {
+                try {
+                    // Load dashboard data
+                    const response = await fetch('/api/dashboard');
+                    const data = await response.json();
+
+                    // Update status
+                    const statusEl = document.getElementById('status');
+                    statusEl.textContent = 'Dashboard Connected';
+                    statusEl.className = 'status-indicator status-running';
+
+                    // Update namespace
+                    document.getElementById('namespace').textContent = data.namespace || 'z-grid';
+
+                    // Update last updated time
+                    document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString();
+
+                    // Update system metrics
+                    if (data.system) {
+                        document.getElementById('cpu').textContent = data.system.cpu_percent.toFixed(1) + '%';
+                        document.getElementById('memory').textContent = data.system.memory_percent.toFixed(1) + '%';
+                        document.getElementById('disk').textContent = data.system.disk_percent.toFixed(1) + '%';
+                    }
+
+                    // Update services
+                    updateServices(data.services);
+
+                    // Update endpoints
+                    updateEndpoints(data.endpoints);
+
+                } catch (error) {
+                    console.error('Error loading data:', error);
+                    const statusEl = document.getElementById('status');
+                    statusEl.textContent = 'Connection Error';
+                    statusEl.className = 'status-indicator status-error';
+                }
+            }
+
+            function updateServices(servicesData) {
+                const container = document.getElementById('servicesContent');
+
+                if (servicesData.status === 'error') {
+                    container.innerHTML = `<div class="error">Error loading services: ${servicesData.error}</div>`;
+                    return;
+                }
+
+                const services = servicesData.services || {};
+                const serviceItems = Object.entries(services).map(([name, info]) => {
+                    const statusClass = info.ready ? 'status-running' : 'status-pending';
+                    const statusText = info.ready ? 'Running' : info.status || 'Unknown';
+
+                    return `
+                        <li class="service-item">
+                            <span class="service-name">${name}</span>
+                            <div class="service-status">
+                                <span class="status-dot ${statusClass}"></span>
+                                <span>${statusText}</span>
+                            </div>
+                        </li>
+                    `;
+                }).join('');
+
+                container.innerHTML = `
+                    <div style="margin-bottom: 15px;">
+                        <strong>Total Services: ${Object.keys(services).length}</strong>
+                    </div>
+                    <ul class="service-list">
+                        ${serviceItems || '<li class="service-item">No services found</li>'}
+                    </ul>
+                `;
+            }
+
+            function updateEndpoints(endpointsData) {
+                const container = document.getElementById('endpointsContent');
+
+                if (endpointsData.error) {
+                    container.innerHTML = `<div class="error">Error loading endpoints: ${endpointsData.error}</div>`;
+                    return;
+                }
+
+                const endpoints = Object.entries(endpointsData).filter(([name, url]) =>
+                    !name.includes('error') && url && !url.includes('error')
+                );
+
+                if (endpoints.length === 0) {
+                    container.innerHTML = '<div style="color: #7f8c8d;">No external endpoints available</div>';
+                    return;
+                }
+
+                const endpointItems = endpoints.map(([name, url]) => `
+                    <div class="service-item">
+                        <span class="service-name">${name}</span>
+                        <a href="${url}" target="_blank" style="color: #3498db; text-decoration: none;">
+                            ${url} 🔗
+                        </a>
+                    </div>
+                `).join('');
+
+                container.innerHTML = `
+                    <ul class="service-list">
+                        ${endpointItems}
+                    </ul>
+                `;
+            }
+
+            // Load data on page load
+            document.addEventListener('DOMContentLoaded', loadData);
+
+            // Auto-refresh every 30 seconds
+            setInterval(loadData, 30000);
+        </script>
+    </body>
+    </html>
+    """
+
+    # Initialize Kubernetes client
+    try:
+        config.load_incluster_config()
+        v1 = client.CoreV1Api()
+        K8S_AVAILABLE = True
+    except:
+        K8S_AVAILABLE = False
+        print("Kubernetes not available, using mock data")
+
+    NAMESPACE = 'z-grid'
+
+    def get_service_status():
+        """Get service status for all services in z-grid namespace"""
+        if not K8S_AVAILABLE:
+            return {
+                "status": "mock",
+                "services": {
+                    "gateway-v2-real": {"status": "Running", "ready": True},
+                    "pii-service-ml": {"status": "Running", "ready": True},
+                    "policy-service-real-llamaguard": {"status": "Running", "ready": True},
+                    "bias-service-deberta-v3-fast": {"status": "Running", "ready": True},
+                    "tox-service-yavar": {"status": "Running", "ready": True},
+                    "secrets-service-yavar": {"status": "Running", "ready": True}
+                }
+            }
+
+        try:
+            pods = v1.list_namespaced_pod(NAMESPACE)
+            services = {}
+
+            for pod in pods.items:
+                pod_name = pod.metadata.name
+                phase = pod.status.phase
+                ready = False
+                if pod.status.container_statuses:
+                    ready = all(container.ready for container in pod.status.container_statuses)
+
+                services[pod_name] = {
+                    "status": phase,
+                    "ready": ready
+                }
+
+            return {"status": "ok", "services": services}
+        except Exception as e:
+            return {"status": "error", "error": str(e), "services": {}}
+
+    def get_system_metrics():
+        """Get system metrics"""
+        return {
+            "cpu_percent": psutil.cpu_percent(),
+            "memory_percent": psutil.virtual_memory().percent,
+            "disk_percent": psutil.disk_usage('/').percent,
+            "timestamp": datetime.now().isoformat()
+        }
+
+    def get_service_endpoints():
+        """Get service endpoints for z-grid services"""
+        if not K8S_AVAILABLE:
+            return {
+                "gateway": "http://localhost:8001",
+                "pii": "http://localhost:8006",
+                "policy": "http://localhost:8003",
+                "bias": "http://localhost:8012",
+                "toxicity": "http://localhost:8013",
+                "secrets": "http://localhost:8005"
+            }
+
+        try:
+            services = v1.list_namespaced_service(NAMESPACE)
+            endpoints = {}
+
+            for svc in services.items:
+                if svc.spec.type == "LoadBalancer":
+                    if svc.status.load_balancer and svc.status.load_balancer.ingress:
+                        ip = svc.status.load_balancer.ingress[0].ip
+                        if ip:
+                            port = svc.spec.ports[0].port if svc.spec.ports else 80
+                            endpoints[svc.metadata.name] = f"http://{ip}:{port}"
+
+                # Add internal services
+                if svc.metadata.name in ["gateway-v2-working", "pii-service-ml", "policy-service-real-llamaguard"]:
+                    port = svc.spec.ports[0].port if svc.spec.ports else 8000
+                    endpoints[svc.metadata.name] = f"http://{svc.metadata.name}.{NAMESPACE}:{port}"
+
+            return endpoints
+        except Exception as e:
+            return {"error": str(e)}
+
+    @app.route('/')
+    def index():
+        return render_template_string(HTML_TEMPLATE)
+
+    @app.route('/health')
+    def health():
+        return jsonify({
+            "status": "healthy",
+            "timestamp": datetime.now().isoformat()
+        })
+
+    @app.route('/api/services')
+    def api_services():
+        return jsonify(get_service_status())
+
+    @app.route('/api/metrics')
+    def api_metrics():
+        return jsonify(get_system_metrics())
+
+    @app.route('/api/endpoints')
+    def api_endpoints():
+        return jsonify(get_service_endpoints())
+
+    @app.route('/api/dashboard')
+    def api_dashboard():
+        services = get_service_status()
+        metrics = get_system_metrics()
+        endpoints = get_service_endpoints()
+
+        return jsonify({
+            "services": services,
+            "system": metrics,
+            "endpoints": endpoints,
+            "namespace": NAMESPACE,
+            "timestamp": datetime.now().isoformat()
+        })
+
+    if __name__ == '__main__':
+        app.run(host='0.0.0.0', port=5000, debug=False)

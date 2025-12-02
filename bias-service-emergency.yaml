@@ -1,0 +1,145 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bias-deberta-v3
+  namespace: z-grid
+  labels:
+    app: bias-deberta-v3
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bias-deberta-v3
+  template:
+    metadata:
+      labels:
+        app: bias-deberta-v3
+    spec:
+      containers:
+      - name: bias-deberta-v3
+        image: python:3.11-slim
+        command:
+        - python3
+        - -c
+        - |
+          from flask import Flask, request, jsonify
+          from datetime import datetime
+          import json
+          import re
+
+          app = Flask(__name__)
+
+          # Bias detection patterns
+          BIAS_PATTERNS = {
+              "racial bias": [
+                  r"where are you really from",
+                  r"you don't look like.*typical",
+                  r"surprised how articulate.*for someone",
+                  r"from your background",
+                  r"certain communities"
+              ],
+              "gender bias": [
+                  r"women.*can't.*technical",
+                  r"men.*better.*leadership",
+                  r"gender.*stereotype"
+              ],
+              "age bias": [
+                  r"too young|too old",
+                  r"millennials.*lazy",
+                  r"baby boomers.*out of touch"
+              ],
+              "socioeconomic bias": [
+                  r"poor.*can't.*afford",
+                  r"rich.*don't.*understand",
+                  r"class.*discrimination"
+              ]
+          }
+
+          BIAS_API_KEYS = ['supersecret123', 'biasyavar', 'enhancedbias123', 'zgridbias2025']
+
+          def detect_bias(text):
+              findings = []
+              text_lower = text.lower()
+
+              for category, patterns in BIAS_PATTERNS.items():
+                  for pattern in patterns:
+                      if re.search(pattern, text_lower, re.IGNORECASE):
+                          findings.append({
+                              'category': category,
+                              'confidence': 0.85,
+                              'method': 'pattern_matching',
+                              'matched_pattern': pattern
+                          })
+                          break
+
+              return findings
+
+          def validate_api_key():
+              api_key = request.headers.get('X-API-Key')
+              return api_key in BIAS_API_KEYS
+
+          @app.route('/health', methods=['GET'])
+          def health():
+              return jsonify({
+                  'ok': True,
+                  'service': 'Emergency Bias Detection Service',
+                  'status': 'running',
+                  'timestamp': datetime.now().isoformat()
+              })
+
+          @app.route('/validate', methods=['POST'])
+          def validate():
+              if not validate_api_key():
+                  return jsonify({'error': 'Invalid API key'}), 401
+
+              data = request.get_json()
+              if not data or 'text' not in data:
+                  return jsonify({'error': 'Text is required'}), 400
+
+              text = data['text']
+              findings = detect_bias(text)
+
+              bias_score = max([f['confidence'] for f in findings]) if findings else 0.0
+              violated = bias_score > 0.7
+
+              return jsonify({
+                  'text': text,
+                  'context': data.get('context', 'emergency bias test'),
+                  'bias_score': bias_score,
+                  'violated': violated,
+                  'findings': findings,
+                  'methods_used': ['pattern_matching'],
+                  'analysis_summary': {
+                      'pattern_matches': len(findings),
+                      'total_findings': len(findings)
+                  },
+                  'timestamp': datetime.now().isoformat()
+              })
+
+          if __name__ == '__main__':
+              print("🚀 Emergency Bias Service Starting...")
+              app.run(host='0.0.0.0', port=8012, debug=False)
+        ports:
+        - containerPort: 8012
+        env:
+        - name: BIAS_API_KEYS
+          value: "supersecret123,biasyavar,enhancedbias123,zgridbias2025"
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8012
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8012
+          initialDelaySeconds: 5
+          periodSeconds: 10

@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jailbreak-roberta-model-pvc
+  namespace: z-grid
+  labels:
+    app: jailbreak-roberta-heuristic
+    component: model-storage
+spec:
+  accessModes:
+    - ReadOnlyMany
+  resources:
+    requests:
+      storage: 2Gi
+  storageClassName: azurefile-premium

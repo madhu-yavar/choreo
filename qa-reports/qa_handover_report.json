@@ -1,0 +1,74 @@
+{
+  "timestamp": "2025-10-09T08:14:32.684678",
+  "build": "20251008.6",
+  "service_health": {
+    "total_services": 9,
+    "running_services": 5,
+    "health_rate": 55.55555555555556,
+    "service_details": {
+      "ban": {
+        "pod": "zgrid-release-zgrid-chart-ban-94fdf7d8f-2jks6",
+        "ready": "0/1",
+        "status": "Error",
+        "restarts": "229"
+      },
+      "format": {
+        "pod": "zgrid-release-zgrid-chart-format-5d55bdc547-lj8cj",
+        "ready": "1/1",
+        "status": "Running",
+        "restarts": "0"
+      },
+      "gateway": {
+        "pod": "zgrid-release-zgrid-chart-gateway-5d7786b6f8-z4wrs",
+        "ready": "1/1",
+        "status": "Running",
+        "restarts": "0"
+      },
+      "gibberish": {
+        "pod": "zgrid-release-zgrid-chart-gibberish-5bfbdc886c-bzgrt",
+        "ready": "1/1",
+        "status": "Running",
+        "restarts": "0"
+      },
+      "jail": {
+        "pod": "zgrid-release-zgrid-chart-jail-769446bdf-6lv6t",
+        "ready": "0/1",
+        "status": "Init:CrashLoopBackOff",
+        "restarts": "4"
+      },
+      "pii": {
+        "pod": "zgrid-release-zgrid-chart-pii-5dc6c664c-5nwdt",
+        "ready": "0/1",
+        "status": "Init:CrashLoopBackOff",
+        "restarts": "117"
+      },
+      "policy": {
+        "pod": "zgrid-release-zgrid-chart-policy-846db44c84-6bqlf",
+        "ready": "1/1",
+        "status": "Running",
+        "restarts": "0"
+      },
+      "secrets": {
+        "pod": "zgrid-release-zgrid-chart-secrets-77864798cd-qtgjl",
+        "ready": "0/1",
+        "status": "CrashLoopBackOff",
+        "restarts": "4"
+      },
+      "tox": {
+        "pod": "zgrid-release-zgrid-chart-tox-7cdfcf97bf-jcw9z",
+        "ready": "1/1",
+        "status": "Running",
+        "restarts": "0"
+      }
+    }
+  },
+  "fix_verification": {
+    "policy_violated_flag": false
+  },
+  "recommendation": "CONDITIONAL",
+  "success_criteria": {
+    "min_services_running": 6,
+    "policy_fix_required": true,
+    "readiness_threshold": 75.0
+  }
+}

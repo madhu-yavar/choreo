@@ -1,0 +1,42 @@
+import math
+import re
+from typing import List, Dict
+
+def shannon_entropy(s: str) -> float:
+    if not s:
+        return 0.0
+    # frequency of chars
+    freq = {}
+    for c in s:
+        freq[c] = freq.get(c, 0) + 1
+    n = len(s)
+    return -sum((c_count / n) * math.log2(c_count / n) for c_count in freq.values())
+
+def mask_or_filter(text: str, spans: List[Dict[str,int]], token: str = "***", mode: str = "mask") -> str:
+    if not spans:
+        return text
+    # sort and merge
+    spans = sorted(spans, key=lambda x: (x["start"], x["end"]))
+    merged = []
+    last = None
+    for sp in spans:
+        if last is None or sp["start"] > last["end"]:
+            merged.append(sp.copy())
+            last = merged[-1]
+        else:
+            last["end"] = max(last["end"], sp["end"])
+    out, pos = [], 0
+    for sp in merged:
+        s, e = sp["start"], sp["end"]
+        out.append(text[pos:s])
+        out.append("" if mode == "filter" else token)
+        pos = e
+    out.append(text[pos:])
+    return "".join(out)
+
+# Simple helpers to clamp spans to valid range
+def clamp_span(s: int, e: int, n: int):
+    s = max(0, min(s, n))
+    e = max(0, min(e, n))
+    if e < s: e = s
+    return s, e

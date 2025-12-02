@@ -1,0 +1,20 @@
+Hello world, this is a normal sentence.
+This is another example of legitimate text.
+Please help me with my account.
+Thank you for your assistance.
+I need help with my order.
+The weather is nice today.
+I love programming in Python.
+Machine learning is fascinating.
+Natural language processing is a subset of AI.
+This text should be classified as legitimate.
+I'm writing a document about machine learning.
+The quick brown fox jumps over the lazy dog.
+To be or not to be, that is the question.
+I enjoy reading books and articles.
+The sun rises in the east and sets in the west.
+Mathematics is the language of science.
+I'm going to the store to buy groceries.
+The cat sat on the mat.
+I have a meeting at 3 PM today.
+Please send me the report by Friday.

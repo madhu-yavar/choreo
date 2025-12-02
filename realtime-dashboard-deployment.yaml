@@ -1,0 +1,143 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: realtime-dashboard-sa
+  namespace: z-grid
+  labels:
+    app: realtime-monitoring-dashboard
+    component: monitoring
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: realtime-dashboard-reader
+  labels:
+    app: realtime-monitoring-dashboard
+    component: monitoring
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "nodes"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["metrics.k8s.io"]
+  resources: ["pods", "nodes"]
+  verbs: ["get", "list"]
+- apiGroups: ["extensions"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: realtime-dashboard-reader-binding
+  labels:
+    app: realtime-monitoring-dashboard
+    component: monitoring
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: realtime-dashboard-reader
+subjects:
+- kind: ServiceAccount
+  name: realtime-dashboard-sa
+  namespace: z-grid
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: realtime-monitoring-dashboard
+  namespace: z-grid
+  labels:
+    app: realtime-monitoring-dashboard
+    component: monitoring
+    version: v3.0.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: realtime-monitoring-dashboard
+  template:
+    metadata:
+      labels:
+        app: realtime-monitoring-dashboard
+        component: monitoring
+        version: v3.0.0
+    spec:
+      serviceAccountName: realtime-dashboard-sa
+      containers:
+      - name: monitoring-dashboard
+        image: python:3.11-slim
+        command: ['sh', '-c']
+        args:
+        - |
+          cd /app
+          pip install --no-cache-dir -r requirements.txt
+          python app.py
+        ports:
+        - containerPort: 5000
+          name: http
+          protocol: TCP
+        env:
+        - name: NAMESPACE
+          value: "z-grid"
+        - name: PORT
+          value: "5000"
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "200m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 5000
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 5000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        volumeMounts:
+        - name: dashboard-config
+          mountPath: /app
+          readOnly: false
+      volumes:
+      - name: dashboard-config
+        configMap:
+          name: realtime-dashboard-config
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: realtime-monitoring-dashboard-service
+  namespace: z-grid
+  labels:
+    app: realtime-monitoring-dashboard
+    component: monitoring
+spec:
+  selector:
+    app: realtime-monitoring-dashboard
+  ports:
+  - name: http
+    port: 5000
+    targetPort: 5000
+    protocol: TCP
+  type: ClusterIP

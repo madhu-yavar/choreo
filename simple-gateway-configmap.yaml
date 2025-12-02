@@ -1,0 +1,516 @@
+---
+# ConfigMap for Simple Gateway Service Code
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: simple-gateway-code
+  namespace: z-grid
+  labels:
+    app: simple-gateway
+    service-type: gateway
+data:
+  simple_gateway_service.py: |
+    #!/usr/bin/env python3
+    """
+    🚀 Simple Gateway Service - External-Facing Content Moderation Gateway
+    =====================================================================
+    ✨ Features:
+    - External-facing entry point for users
+    - Parallel testing of QA-approved services (NO Bias & Policy integration)
+    - Clean, modern FastAPI architecture
+    - Production-ready with proper error handling
+    - Comprehensive service orchestration
+    - API key authentication with master and service-specific keys
+    - Performance monitoring and metrics
+    """
+
+    import os
+    import json
+    import asyncio
+    import httpx
+    from typing import List, Dict, Any, Optional
+    from datetime import datetime
+    from fastapi import FastAPI, Header, HTTPException, Body, Request
+    from pydantic import BaseModel
+    from dotenv import load_dotenv
+    from fastapi.middleware.cors import CORSMiddleware
+
+    # Load environment variables
+    load_dotenv()
+
+    # Initialize FastAPI app
+    app = FastAPI(
+        title="Simple Gateway Service - Content Moderation Gateway",
+        description="External-facing gateway with parallel content moderation testing",
+        version="1.0.0",
+        docs_url="/docs",
+        redoc_url="/redoc"
+    )
+
+    # HTTP Client for service calls
+    @app.on_event("startup")
+    async def startup_client():
+        """Initialize HTTP client with optimal settings"""
+        limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
+        timeout = httpx.Timeout(60.0, connect=30.0, read=60.0, write=30.0, pool=30.0)
+        client = httpx.AsyncClient(
+            timeout=timeout,
+            limits=limits,
+            follow_redirects=True,
+            verify=False
+        )
+        app.state.http = client
+        print("✅ Simple Gateway HTTP client initialized")
+
+    @app.on_event("shutdown")
+    async def shutdown_client():
+        """Properly close HTTP client"""
+        client = getattr(app.state, "http", None)
+        if client:
+            await client.aclose()
+            print("✅ Simple Gateway HTTP client closed")
+
+    # Configuration
+    MASTER_API_KEYS = [s.strip() for s in os.getenv("SIMPLE_GATEWAY_MASTER_KEYS", "simple-gateway-master-key").split(",") if s.strip()]
+    GATEWAY_VERSION = "1.0.0"
+
+    # Service Endpoints - K8s internal networking (QA Approved Services - NO Bias & Policy)
+    SERVICE_ENDPOINTS = {
+        "pii": os.getenv("PII_SERVICE_URL", "http://pii-service-yavar.z-grid:8000/validate"),
+        "toxicity": os.getenv("TOXICITY_SERVICE_URL", "http://tox-service-yavar.z-grid:8001/validate"),
+        "jailbreak": os.getenv("JAILBREAK_SERVICE_URL", "http://jail-service-yavar.z-grid:8002/validate"),
+        "ban": os.getenv("BAN_SERVICE_URL", "http://ban-service-yavar.z-grid:8004/validate"),
+        "secrets": os.getenv("SECRETS_SERVICE_URL", "http://secrets-service-yavar.z-grid:8005/validate"),
+        "format": os.getenv("FORMAT_SERVICE_URL", "http://format-service-yavar.z-grid:8006/validate"),
+        "gibberish": os.getenv("GIBBERISH_SERVICE_URL", "http://gibberish-service-yavar.z-grid:8007/validate"),
+    }
+
+    # Service-Specific API Keys
+    SERVICE_API_KEYS = {
+        "pii": os.getenv("PII_SERVICE_KEY", "supersecret123"),
+        "toxicity": os.getenv("TOXICITY_SERVICE_KEY", "supersecret123"),
+        "jailbreak": os.getenv("JAILBREAK_SERVICE_KEY", "supersecret123"),
+        "ban": os.getenv("BAN_SERVICE_KEY", "supersecret123"),
+        "secrets": os.getenv("SECRETS_SERVICE_KEY", "supersecret123"),
+        "format": os.getenv("FORMAT_SERVICE_KEY", "supersecret123"),
+        "gibberish": os.getenv("GIBBERISH_SERVICE_KEY", "supersecret123"),
+    }
+
+    # CORS Configuration
+    def _get_allowed_origins():
+        """Get allowed CORS origins from environment"""
+        origins = [
+            "https://zgrid-feature-flow.lovable.app",
+            "https://*.lovable.app",
+            "https://*.sandbox.lovable.dev",
+            "http://localhost:5173",
+            "http://localhost:3000",
+            "http://localhost:8001",
+            "http://48.195.193.32:8002",  # External jailbreak service
+        ]
+
+        env_origins = os.getenv("CORS_ALLOWED_ORIGINS", "")
+        if env_origins:
+            origins.extend([origin.strip() for origin in env_origins.split(",") if origin.strip()])
+
+        return list(set(origins))
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_get_allowed_origins(),
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["*"],
+    )
+
+    # Data Models
+    class ValidateRequest(BaseModel):
+        text: str
+        check_pii: Optional[bool] = True
+        check_toxicity: Optional[bool] = True
+        check_jailbreak: Optional[bool] = True
+        check_secrets: Optional[bool] = True
+        check_ban: Optional[bool] = True
+        check_format: Optional[bool] = True
+        check_gibberish: Optional[bool] = True
+        action_on_fail: Optional[str] = "refrain"  # refrain, filter, mask
+        entities: Optional[List[str]] = None
+        timeout: Optional[float] = 30.0  # Per-service timeout
+
+    class ModerationResult(BaseModel):
+        status: str  # pass, blocked, fixed, error
+        clean_text: str
+        blocked_categories: List[str]
+        results: Dict[str, Any]
+        reasons: List[str]
+        processing_time_ms: Optional[float] = None
+        services_checked: Optional[int] = None
+        gateway_version: str = GATEWAY_VERSION
+        timestamp: Optional[str] = None
+
+    class ServiceHealth(BaseModel):
+        service: str
+        status: str  # healthy, unhealthy, error
+        endpoint: str
+        response_time_ms: Optional[float] = None
+        details: Optional[Dict[str, Any]] = None
+
+    class ServiceInfo(BaseModel):
+        name: str
+        port: int
+        internal_service: str
+        api_key: str
+        status: str
+
+    # Utility Functions
+    def require_master_api_key(x_api_key: Optional[str] = Header(default=None)):
+        """Validate Master API Key"""
+        if not MASTER_API_KEYS:
+            return  # No API key enforcement (for development)
+
+        if not x_api_key or x_api_key not in MASTER_API_KEYS:
+            raise HTTPException(
+                status_code=401,
+                detail="Unauthorized - Invalid Master API key"
+            )
+
+    def build_service_headers(service_name: str) -> Dict[str, str]:
+        """Build service-specific headers with proper authentication"""
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": f"SimpleGateway/{GATEWAY_VERSION}",
+            "X-API-Key": SERVICE_API_KEYS.get(service_name, "supersecret123"),
+        }
+        return headers
+
+    async def call_service(service_name: str, text: str, timeout: float = 30.0, **kwargs) -> Dict[str, Any]:
+        """Call a downstream service with proper error handling and timeout"""
+        if service_name not in SERVICE_ENDPOINTS:
+            return {
+                "status": "error",
+                "error": f"Unknown service: {service_name}",
+                "details": "Service not configured in gateway",
+                "processing_time_ms": 0
+            }
+
+        url = SERVICE_ENDPOINTS[service_name]
+        headers = build_service_headers(service_name)
+
+        # Prepare payload
+        payload = {"text": text}
+        payload.update(kwargs)
+
+        client = app.state.http
+
+        try:
+            start_time = datetime.now()
+            response = await client.post(url, headers=headers, json=payload, timeout=timeout)
+            end_time = datetime.now()
+
+            processing_time = (end_time - start_time).total_seconds() * 1000
+
+            if response.status_code == 200:
+                result = response.json()
+                result["processing_time_ms"] = processing_time
+                return result
+            else:
+                return {
+                    "status": "error",
+                    "error": f"Service {service_name} returned {response.status_code}",
+                    "details": response.text[:200],
+                    "processing_time_ms": processing_time
+                }
+        except httpx.TimeoutException:
+            return {
+                "status": "error",
+                "error": f"Service {service_name} timeout",
+                "details": f"Request timed out after {timeout} seconds",
+                "processing_time_ms": timeout * 1000
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "error": f"Failed to call {service_name}",
+                "details": str(e),
+                "processing_time_ms": 0
+            }
+
+    # API Endpoints
+    @app.get("/")
+    async def root():
+        """Root endpoint"""
+        return {
+            "service": "Simple Gateway Service",
+            "version": GATEWAY_VERSION,
+            "description": "External-facing content moderation gateway with parallel testing",
+            "endpoints": {
+                "validate": "/validate - Main validation endpoint",
+                "health": "/health - Basic health check",
+                "health_detailed": "/health/detailed - Detailed service health",
+                "services": "/services - List integrated services"
+            }
+        }
+
+    @app.get("/health")
+    async def health_check():
+        """Basic health check"""
+        return {
+            "status": "healthy",
+            "service": "Simple Gateway Service",
+            "version": GATEWAY_VERSION,
+            "timestamp": datetime.utcnow().isoformat(),
+            "services_count": len(SERVICE_ENDPOINTS)
+        }
+
+    @app.get("/services")
+    async def get_services():
+        """List all integrated services with their configurations"""
+        services_info = []
+        for service_name, endpoint in SERVICE_ENDPOINTS.items():
+            services_info.append(ServiceInfo(
+                name=service_name,
+                port=int(endpoint.split(':')[-1].split('/')[0]),
+                internal_service=endpoint.split('//')[1].split(':')[0],
+                api_key=SERVICE_API_KEYS.get(service_name, "supersecret123")[:8] + "...",  # Partial key for security
+                status="configured"
+            ).dict())
+
+        return {
+            "gateway_version": GATEWAY_VERSION,
+            "total_services": len(services_info),
+            "services": services_info,
+            "excluded_services": ["bias", "policy"]  # Explicitly mention excluded services
+        }
+
+    @app.post("/validate", response_model=ModerationResult)
+    async def validate_content(request: ValidateRequest, x_api_key: Optional[str] = Header(default=None)):
+        """
+        Main validation endpoint with parallel execution of all QA-approved services
+        """
+        require_master_api_key(x_api_key)
+
+        start_time = datetime.now()
+        text = request.text or ""
+
+        if not text.strip():
+            return ModerationResult(
+                status="pass",
+                clean_text=text,
+                blocked_categories=[],
+                results={},
+                reasons=["Empty text - no validation needed"],
+                processing_time_ms=0,
+                services_checked=0,
+                timestamp=datetime.utcnow().isoformat()
+            )
+
+        print(f"🚀 Simple Gateway Processing: {text[:50]}...")
+        print(f"🔍 Running services in parallel: {[k for k, v in {
+            'pii': request.check_pii,
+            'toxicity': request.check_toxicity,
+            'jailbreak': request.check_jailbreak,
+            'ban': request.check_ban,
+            'secrets': request.check_secrets,
+            'format': request.check_format,
+            'gibberish': request.check_gibberish
+        }.items() if v]}")
+
+        # Initialize results
+        results = {}
+        blocked_categories = []
+        reasons = []
+        clean_text = text
+        services_checked = 0
+
+        # Create task configuration for parallel execution
+        task_configs = {}
+        if request.check_pii:
+            pii_params = {}
+            if request.entities:
+                pii_params["entities"] = request.entities
+            task_configs["pii"] = pii_params
+        if request.check_toxicity:
+            task_configs["toxicity"] = {}
+        if request.check_jailbreak:
+            task_configs["jailbreak"] = {}
+        if request.check_ban:
+            task_configs["ban"] = {}
+        if request.check_secrets:
+            task_configs["secrets"] = {}
+        if request.check_format:
+            task_configs["format"] = {}
+        if request.check_gibberish:
+            task_configs["gibberish"] = {}
+
+        # Execute all services in parallel
+        if task_configs:
+            # Create all tasks simultaneously
+            tasks = {
+                service_name: asyncio.create_task(
+                    call_service(service_name, text, request.timeout or 30.0, **params)
+                )
+                for service_name, params in task_configs.items()
+            }
+
+            # Wait for all tasks to complete
+            task_results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+
+            # Collect results
+            service_names = list(tasks.keys())
+            for i, service_name in enumerate(service_names):
+                try:
+                    if isinstance(task_results[i], Exception):
+                        results[service_name] = {
+                            "status": "error",
+                            "error": "Service call failed",
+                            "details": str(task_results[i])
+                        }
+                    else:
+                        results[service_name] = task_results[i]
+                    services_checked += 1
+                except Exception as e:
+                    results[service_name] = {
+                        "status": "error",
+                        "error": "Failed to process service result",
+                        "details": str(e)
+                    }
+
+            # Process results and apply actions
+            for service_name, result in results.items():
+                if result.get("status") in ("blocked", "refrain", "fixed"):
+                    # Skip gibberish if PII was detected (performance optimization)
+                    if service_name == "gibberish" and "pii" in blocked_categories:
+                        results[service_name] = {
+                            **result,
+                            "status": "pass",
+                            "reason": ["Gibberish detection skipped due to PII presence"]
+                        }
+                        continue
+
+                    blocked_categories.append(service_name)
+
+                    # Add specific reason based on service
+                    reason_map = {
+                        "pii": "PII detected",
+                        "toxicity": "Toxic content detected",
+                        "jailbreak": "Jailbreak attempt detected",
+                        "ban": "Content banned",
+                        "secrets": "Secrets detected",
+                        "format": "Format issues detected",
+                        "gibberish": "Gibberish detected"
+                    }
+                    reasons.append(reason_map.get(service_name, f"{service_name} detected"))
+
+                    # Apply action based on failure
+                    action = request.action_on_fail or "refrain"
+                    if action == "refrain":
+                        clean_text = ""
+                    elif action == "filter":
+                        clean_text = f"[{service_name.upper()} DETECTED - CONTENT FILTERED]"
+                    elif action == "mask":
+                        clean_text = "*" * len(text)
+
+                    # Update clean text if service provided sanitized version
+                    if isinstance(result.get("clean_text"), str):
+                        clean_text = result["clean_text"]
+                    elif isinstance(result.get("redacted_text"), str):
+                        clean_text = result["redacted_text"]
+
+                    print(f"✅ {service_name} detected! Action: {action}")
+                else:
+                    print(f"✅ {service_name} - No issues detected")
+
+        # Calculate total processing time
+        end_time = datetime.now()
+        processing_time = (end_time - start_time).total_seconds() * 1000
+
+        # Determine overall status
+        if not blocked_categories:
+            overall_status = "pass"
+        elif clean_text == "":
+            overall_status = "blocked"
+        elif clean_text != text:
+            overall_status = "fixed"
+        else:
+            overall_status = "blocked"
+
+        if not reasons:
+            reasons = ["Content complies with all policies"]
+
+        print(f"✅ Processing complete! Status: {overall_status}, Services: {services_checked}, Time: {processing_time:.2f}ms")
+
+        return ModerationResult(
+            status=overall_status,
+            clean_text=clean_text,
+            blocked_categories=blocked_categories,
+            results=results,
+            reasons=reasons,
+            processing_time_ms=processing_time,
+            services_checked=services_checked,
+            timestamp=datetime.utcnow().isoformat()
+        )
+
+    @app.get("/health/detailed")
+    async def detailed_health_check():
+        """Detailed health check with service status"""
+        health_results = {}
+
+        for service_name in SERVICE_ENDPOINTS:
+            try:
+                health_url = SERVICE_ENDPOINTS[service_name].replace("/validate", "/health")
+                headers = build_service_headers(service_name)
+
+                client = app.state.http
+                start_time = datetime.now()
+                response = await client.get(health_url, headers=headers, timeout=10.0)
+                end_time = datetime.now()
+
+                response_time = (end_time - start_time).total_seconds() * 1000
+
+                if response.status_code == 200:
+                    health_results[service_name] = ServiceHealth(
+                        service=service_name,
+                        status="healthy",
+                        endpoint=health_url,
+                        response_time_ms=response_time,
+                        details=response.json() if response.headers.get("content-type", "").startswith("application/json") else None
+                    ).dict()
+                else:
+                    health_results[service_name] = ServiceHealth(
+                        service=service_name,
+                        status="unhealthy",
+                        endpoint=health_url,
+                        response_time_ms=response_time,
+                        details={"error": f"HTTP {response.status_code}"}
+                    ).dict()
+            except Exception as e:
+                health_results[service_name] = ServiceHealth(
+                    service=service_name,
+                    status="error",
+                    endpoint=SERVICE_ENDPOINTS[service_name],
+                    details={"error": str(e)}
+                ).dict()
+
+        return {
+            "gateway": {
+                "status": "healthy",
+                "version": GATEWAY_VERSION,
+                "timestamp": datetime.utcnow().isoformat()
+            },
+            "services": health_results,
+            "summary": {
+                "total_services": len(SERVICE_ENDPOINTS),
+                "healthy_services": len([s for s in health_results.values() if s["status"] == "healthy"]),
+                "unhealthy_services": len([s for s in health_results.values() if s["status"] != "healthy"])
+            }
+        }
+
+    if __name__ == "__main__":
+        import uvicorn
+        uvicorn.run(
+            "simple_gateway_service:app",
+            host="0.0.0.0",
+            port=8010,
+            reload=True,
+            log_level="info"
+        )

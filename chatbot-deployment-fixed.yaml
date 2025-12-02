@@ -1,0 +1,805 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chatbot-app-files
+  namespace: zgrid
+data:
+  app.py: |
+    """
+    Z-Grid Chatbot Service
+    A cute chatbot that demonstrates Z-Grid content moderation services
+    """
+    from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
+from fastapi.middleware.cors import CORSMiddleware
+    from pydantic import BaseModel
+    from typing import Dict, List, Optional, Any
+    import requests
+    import json
+    import os
+    import time
+
+    app = FastAPI(
+        title="Z-Grid Chatbot Service",
+        description="Chatbot demonstrating Z-Grid content moderation",
+        version="2.0.0"
+    )
+
+    # CORS middleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # Configuration - Support both Gateway 1 and Gateway 2
+    GATEWAY_URL_V2 = os.getenv("GATEWAY_URL_V2", "http://134.33.132.66:8008")
+    GATEWAY_URL = os.getenv("GATEWAY_URL", GATEWAY_URL_V2)
+    API_KEY = os.getenv("ZGRID_API_KEY", "supersecret123")
+    GATEWAY_TIMEOUT = int(os.getenv("GATEWAY_TIMEOUT", "60"))
+
+    class ChatRequest(BaseModel):
+        message: str
+        user_name: Optional[str] = "anonymous"
+
+    class ServiceStatus(BaseModel):
+        service: str
+        status: str  # "pass", "flagged", "blocked", "error"
+        triggered: bool
+        description: str
+        details: Optional[Dict[str, Any]] = None
+
+    class ChatResponse(BaseModel):
+        response: str
+        moderation_status: str
+        service_details: List[ServiceStatus]
+        processing_time_ms: Optional[float] = None
+        gateway_version: Optional[str] = None
+
+    def create_service_details(response_data: dict) -> List[ServiceStatus]:
+        service_descriptions = {
+            "pii": "PII Detection - Detects personally identifiable information",
+            "policy": "Policy Service - Blocks harmful policy violations",
+            "bias": "Bias Detection - Detects biased or stereotypical content",
+            "toxicity": "Toxicity Detection - Identifies toxic language patterns",
+            "jailbreak": "Jailbreak Detection - Prevents prompt injection attacks",
+            "secrets": "Secrets Detection - Identifies exposed sensitive data",
+            "ban": "Ban Service - Blocks adult/banned content",
+            "format": "Format Checker - Validates response formatting",
+            "gibberish": "Gibberish Detection - Identifies nonsense text"
+        }
+
+        service_info = []
+
+        # Handle Gateway 2 nested format
+        if "data" in response_data:
+            actual_data = response_data["data"]
+            services_data = actual_data.get("services", {})
+        else:
+            services_data = response_data.get("services", {})
+
+        for service_name, service_result in services_data.items():
+            # Handle nested format in Gateway 2
+            if service_result.get("status") == "success" and "data" in service_result:
+                # Gateway 2 format - use data.status
+                actual_data = service_result["data"]
+                status = actual_data.get("status", "pass")
+                details = actual_data.get("details", {})
+            else:
+                # Gateway 1 format - use status directly
+                status = service_result.get("status", "pass")
+                details = service_result.get("details", {})
+
+            # Map gateway statuses to frontend statuses
+            if status == "fail":
+                frontend_status = "blocked"
+                triggered = True
+                description = f"{service_descriptions[service_name]} - Content blocked"
+            elif status in ["flagged", "refrain", "allowed_with_warning", "screened", "monitored"]:
+                frontend_status = "flagged"
+                triggered = True
+                if status == "refrain":
+                    description = f"{service_descriptions[service_name]} - Content advised against"
+                elif status == "allowed_with_warning":
+                    description = f"{service_descriptions[service_name]} - Allowed with warnings"
+                elif status == "screened":
+                    description = f"{service_descriptions[service_name]} - Content screened"
+                elif status == "monitored":
+                    description = f"{service_descriptions[service_name]} - Content monitored"
+                else:
+                    description = f"{service_descriptions[service_name]} - Content flagged"
+            elif status in ["pass", "allowed", "accepted", "review_required"]:
+                frontend_status = "pass"
+                triggered = False
+                if status == "allowed":
+                    description = f"{service_descriptions[service_name]} - Content allowed"
+                elif status == "accepted":
+                    description = f"{service_descriptions[service_name]} - Content accepted"
+                elif status == "review_required":
+                    description = f"{service_descriptions[service_name]} - Review required"
+                else:
+                    description = f"{service_descriptions[service_name]} - Content passed"
+            else:
+                frontend_status = "error"
+                triggered = True
+                description = f"{service_descriptions[service_name]} - Error occurred: {status}"
+
+            # Special handling for PII service details
+            if service_name == "pii" and "entities" in details:
+                pii_entities = details["entities"]
+                entity_types = {}
+                for entity in pii_entities:
+                    entity_type = entity.get("type", "unknown")
+                    if entity_type not in entity_types:
+                        entity_types[entity_type] = 0
+                    entity_types[entity_type] += 1
+
+                # Create PII summary for frontend
+                details["pii_summary"] = {
+                    "total_count": len(pii_entities),
+                    "entity_types": entity_types,
+                    "top_entities": pii_entities[:10],
+                    "entity_summary": [f"{entity_type}: {count}" for entity_type, count in entity_types.items()]
+                }
+
+            service_info.append(ServiceStatus(
+                service=service_name.replace("_", " ").title(),
+                status=frontend_status,
+                triggered=triggered,
+                description=description,
+                details=details
+            ))
+
+        return service_info
+
+    @app.get("/", response_class=HTMLResponse)
+    async def serve_frontend():
+        # Return the React frontend HTML that serves the same UI as localhost:3000
+        frontend_html = """
+        <!DOCTYPE html>
+        <html lang="en">
+          <head>
+            <meta charset="UTF-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+            <title>Z-Grid | Feature Marketplace for Developers</title>
+            <meta name="description" content="Discover, explore, and collect powerful validation, security, and analysis features for your applications. Build better software with Z-Grid's curated marketplace." />
+            <meta name="author" content="Z-Grid" />
+            <meta name="keywords" content="feature marketplace, validation, security, code analysis, developer tools, guardrails" />
+            <style>
+              * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+              }
+
+              body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                min-height: 100vh;
+                color: #333;
+              }
+
+              .container {
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 20px;
+              }
+
+              .header {
+                background: rgba(255, 255, 255, 0.95);
+                border-radius: 12px;
+                padding: 30px;
+                margin-bottom: 30px;
+                text-align: center;
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+                backdrop-filter: blur(10px);
+              }
+
+              .header h1 {
+                font-size: 2.5rem;
+                color: #4a5568;
+                margin-bottom: 10px;
+              }
+
+              .header p {
+                font-size: 1.2rem;
+                color: #718096;
+              }
+
+              .demo-section {
+                background: rgba(255, 255, 255, 0.95);
+                border-radius: 12px;
+                padding: 30px;
+                margin-bottom: 30px;
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+                backdrop-filter: blur(10px);
+              }
+
+              .demo-section h2 {
+                font-size: 1.8rem;
+                color: #4a5568;
+                margin-bottom: 20px;
+              }
+
+              .features-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                gap: 20px;
+                margin-top: 30px;
+              }
+
+              .feature-card {
+                background: rgba(255, 255, 255, 0.9);
+                border-radius: 8px;
+                padding: 20px;
+                text-align: center;
+                transition: transform 0.2s ease;
+              }
+
+              .feature-card:hover {
+                transform: translateY(-5px);
+              }
+
+              .feature-icon {
+                font-size: 2.5rem;
+                margin-bottom: 15px;
+              }
+
+              .feature-title {
+                font-size: 1.3rem;
+                color: #4a5568;
+                margin-bottom: 10px;
+              }
+
+              .feature-description {
+                color: #718096;
+                line-height: 1.6;
+              }
+
+              .cta-button {
+                display: inline-block;
+                background: linear-gradient(135deg, #3182ce, #2c5aa0);
+                color: white;
+                padding: 15px 30px;
+                border-radius: 25px;
+                text-decoration: none;
+                font-weight: 600;
+                transition: all 0.2s ease;
+                margin-top: 20px;
+              }
+
+              .cta-button:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 20px rgba(49, 130, 206, 0.4);
+              }
+            </style>
+          </head>
+
+          <body>
+            <div class="container">
+              <div class="header">
+                <h1>🚀 Z-Grid Feature Marketplace</h1>
+                <p>Discover, explore, and collect powerful validation, security, and analysis features for your applications</p>
+              </div>
+
+              <div class="demo-section">
+                <h2>🎯 Live Moderation Demo</h2>
+                <p>Experience our AI-powered content moderation system in action. Try different types of messages to see how our services detect and handle various content categories.</p>
+                <a href="/chat-interface" class="cta-button">Try Moderation Chat →</a>
+              </div>
+
+              <div class="demo-section">
+                <h2>⚡ Core Features</h2>
+                <div class="features-grid">
+                  <div class="feature-card">
+                    <div class="feature-icon">🧠</div>
+                    <div class="feature-title">Intelligent Routing</div>
+                    <div class="feature-description">Phi-powered classification system that intelligently routes content through appropriate moderation services</div>
+                  </div>
+
+                  <div class="feature-card">
+                    <div class="feature-icon">🔒</div>
+                    <div class="feature-title">PII Detection</div>
+                    <div class="feature-description">Automatically identifies and protects personally identifiable information in user content</div>
+                  </div>
+
+                  <div class="feature-card">
+                    <div class="feature-icon">⚖️</div>
+                    <div class="feature-title">Policy Enforcement</div>
+                    <div class="feature-description">Enforces content policies with configurable rules and thresholds</div>
+                  </div>
+
+                  <div class="feature-card">
+                    <div class="feature-icon">🎭</div>
+                    <div class="feature-title">Bias Detection</div>
+                    <div class="feature-description">Identifies and flags biased or stereotypical content patterns</div>
+                  </div>
+
+                  <div class="feature-card">
+                    <div class="feature-icon">☠️</div>
+                    <div class="feature-title">Toxicity Analysis</div>
+                    <div class="feature-description">Detects toxic language patterns and harmful content</div>
+                  </div>
+
+                  <div class="feature-card">
+                    <div class="feature-icon">🛡️</div>
+                    <div class="feature-title">Jailbreak Protection</div>
+                    <div class="feature-description">Prevents prompt injection attacks and adversarial inputs</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="demo-section">
+                <h2>🏗️ Developer-Friendly Architecture</h2>
+                <p>Built with modern microservices architecture, providing scalable and reliable content moderation for applications of any size.</p>
+                <div class="features-grid">
+                  <div class="feature-card">
+                    <div class="feature-icon">🔗</div>
+                    <div class="feature-title">REST API</div>
+                    <div class="feature-description">Simple HTTP API for easy integration into existing workflows</div>
+                  </div>
+
+                  <div class="feature-card">
+                    <div class="feature-icon">📊</div>
+                    <div class="feature-title">Real-time Analytics</div>
+                    <div class="feature-description">Monitor moderation performance and content trends in real-time</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </body>
+        </html>
+        """
+        return HTMLResponse(content=frontend_html)
+
+    @app.get("/chat-interface", response_class=HTMLResponse)
+    async def chat_interface():
+        # Return the chat interface page
+        chat_html = """
+        <!DOCTYPE html>
+        <html lang="en">
+          <head>
+            <meta charset="UTF-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+            <title>Z-Grid Content Moderation Chat</title>
+            <style>
+              * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+              }
+
+              body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                min-height: 100vh;
+                color: #333;
+              }
+
+              .container {
+                max-width: 800px;
+                margin: 0 auto;
+                padding: 20px;
+                height: 100vh;
+                display: flex;
+                flex-direction: column;
+              }
+
+              .header {
+                background: rgba(255, 255, 255, 0.95);
+                border-radius: 12px;
+                padding: 20px;
+                margin-bottom: 20px;
+                text-align: center;
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+                backdrop-filter: blur(10px);
+              }
+
+              .header h1 {
+                font-size: 1.8rem;
+                color: #4a5568;
+                margin-bottom: 5px;
+              }
+
+              .header p {
+                font-size: 1rem;
+                color: #718096;
+              }
+
+              .chat-container {
+                background: rgba(255, 255, 255, 0.95);
+                border-radius: 12px;
+                padding: 20px;
+                flex-grow: 1;
+                display: flex;
+                flex-direction: column;
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+                backdrop-filter: blur(10px);
+              }
+
+              .messages {
+                flex-grow: 1;
+                overflow-y: auto;
+                margin-bottom: 20px;
+                max-height: 400px;
+              }
+
+              .message {
+                margin-bottom: 15px;
+                padding: 12px 16px;
+                border-radius: 18px;
+                max-width: 80%;
+                word-wrap: break-word;
+              }
+
+              .user-message {
+                background: #3182ce;
+                color: white;
+                margin-left: auto;
+                text-align: right;
+              }
+
+              .bot-message {
+                background: #e2e8f0;
+                color: #2d3748;
+              }
+
+              .input-container {
+                display: flex;
+                gap: 10px;
+              }
+
+              input {
+                flex: 1;
+                padding: 12px 16px;
+                border: 1px solid #cbd5e0;
+                border-radius: 25px;
+                outline: none;
+                font-size: 14px;
+              }
+
+              button {
+                padding: 12px 24px;
+                background: #3182ce;
+                color: white;
+                border: none;
+                border-radius: 25px;
+                cursor: pointer;
+                font-weight: 500;
+                transition: background 0.2s ease;
+              }
+
+              button:hover {
+                background: #2c5aa0;
+              }
+
+              button:disabled {
+                background: #a0aec0;
+                cursor: not-allowed;
+              }
+
+              .status-indicator {
+                display: inline-block;
+                padding: 4px 8px;
+                border-radius: 12px;
+                font-size: 12px;
+                font-weight: 500;
+                margin-left: 8px;
+              }
+
+              .status-pass { background: #c6f6d5; color: #22543d; }
+              .status-flagged { background: #fed7aa; color: #7c2d12; }
+              .status-blocked { background: #fed7d7; color: #742a2a; }
+              .status-error { background: #e2e8f0; color: #2d3748; }
+
+              .service-details {
+                margin-top: 8px;
+                font-size: 11px;
+                opacity: 0.8;
+              }
+
+              .back-link {
+                color: #3182ce;
+                text-decoration: none;
+                font-size: 14px;
+              }
+
+              .back-link:hover {
+                text-decoration: underline;
+              }
+            </style>
+          </head>
+
+          <body>
+            <div class="container">
+              <div class="header">
+                <h1>🤖 Z-Grid Content Moderation Chat</h1>
+                <p>Experience real-time AI content moderation with Gateway 2</p>
+                <a href="/" class="back-link">← Back to Home</a>
+              </div>
+
+              <div class="chat-container">
+                <div class="messages" id="messages">
+                  <div class="message bot-message">
+                    Welcome to Z-Grid Content Moderation! Try sending different types of messages to see how our AI services detect and handle various content categories.
+                  </div>
+                </div>
+
+                <div class="input-container">
+                  <input type="text" id="messageInput" placeholder="Type your message here..." onkeypress="if(event.key === 'Enter') sendMessage()">
+                  <button onclick="sendMessage()" id="sendButton">Send</button>
+                </div>
+              </div>
+            </div>
+
+            <script>
+              async function sendMessage() {
+                const input = document.getElementById('messageInput');
+                const button = document.getElementById('sendButton');
+                const messagesContainer = document.getElementById('messages');
+
+                const message = input.value.trim();
+                if (!message) return;
+
+                // Add user message
+                const userMsg = document.createElement('div');
+                userMsg.className = 'message user-message';
+                userMsg.textContent = message;
+                messagesContainer.appendChild(userMsg);
+
+                // Clear input and disable button
+                input.value = '';
+                button.disabled = true;
+                button.textContent = 'Analyzing...';
+
+                try {
+                  const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      message: message,
+                      user_name: 'user'
+                    })
+                  });
+
+                  const data = await response.json();
+
+                  // Add bot response
+                  const botMsg = document.createElement('div');
+                  botMsg.className = 'message bot-message';
+                  botMsg.innerHTML = data.response;
+
+                  // Add status indicator if available
+                  if (data.moderation_status) {
+                    const statusClass = `status-${data.moderation_status}`;
+                    const statusText = data.moderation_status.toUpperCase();
+                    botMsg.innerHTML += `<span class="status-indicator ${statusClass}">${statusText}</span>`;
+                  }
+
+                  // Add service details if available
+                  if (data.service_details && data.service_details.length > 0) {
+                    const triggeredServices = data.service_details.filter(s => s.triggered);
+                    if (triggeredServices.length > 0) {
+                      const servicesHtml = triggeredServices
+                        .map(s => `<div class="service-details"><strong>${s.service}:</strong> ${s.description}</div>`)
+                        .join('');
+                      botMsg.innerHTML += `<div style="margin-top: 8px;">${servicesHtml}</div>`;
+                    }
+                  }
+
+                  messagesContainer.appendChild(botMsg);
+                } catch (error) {
+                  const errorMsg = document.createElement('div');
+                  errorMsg.className = 'message bot-message';
+                  errorMsg.textContent = 'Sorry, I encountered an error. Please try again.';
+                  messagesContainer.appendChild(errorMsg);
+                } finally {
+                  // Re-enable button
+                  button.disabled = false;
+                  button.textContent = 'Send';
+                  input.focus();
+
+                  // Scroll to bottom
+                  messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                }
+              }
+            </script>
+          </body>
+        </html>
+        """
+        return HTMLResponse(content=chat_html)
+
+    @app.get("/health")
+    async def health_check():
+        return {"status": "healthy", "service": "Z-Grid Chatbot", "version": "2.0.0"}
+
+    @app.post("/chat", response_model=ChatResponse)
+    async def chat(request: ChatRequest):
+        start_time = time.time()
+
+        try:
+            # Prepare request for gateway
+            gateway_payload = {
+                "text": request.message,
+                "user_id": request.user_name
+            }
+
+            headers = {
+                "Content-Type": "application/json",
+                "X-API-Key": API_KEY
+            }
+
+            # Call Gateway 2
+            response = requests.post(
+                f"{GATEWAY_URL}/validate",
+                json=gateway_payload,
+                headers=headers,
+                timeout=GATEWAY_TIMEOUT
+            )
+
+            response.raise_for_status()
+            gateway_response = response.json()
+
+            processing_time_ms = (time.time() - start_time) * 1000
+
+            # Determine overall moderation status
+            if "data" in gateway_response:
+                actual_data = gateway_response["data"]
+                services_data = actual_data.get("services", {})
+                overall_status = actual_data.get("overall_status", "pass")
+            else:
+                services_data = gateway_response.get("services", {})
+                overall_status = gateway_response.get("overall_status", "pass")
+
+            # Determine moderation status based on service results
+            moderation_status = "pass"
+            for service_name, service_result in services_data.items():
+                if "data" in service_result and service_result.get("status") == "success":
+                    service_status = service_result["data"].get("status", "pass")
+                else:
+                    service_status = service_result.get("status", "pass")
+
+                if service_status == "fail":
+                    moderation_status = "blocked"
+                    break
+                elif service_status in ["flagged", "refrain", "allowed_with_warning"]:
+                    if moderation_status != "blocked":
+                        moderation_status = "flagged"
+
+            # Create service details
+            service_details = create_service_details(gateway_response)
+
+            # Generate response based on moderation status
+            if moderation_status == "blocked":
+                response_text = "I apologize, but I cannot process this request as it violates content policies."
+            elif moderation_status == "flagged":
+                response_text = f"I understand your message: '{request.message}'. However, I notice this content may be sensitive. Please proceed with caution."
+            else:
+                response_text = f"Hello {request.user_name}! I received your message: '{request.message}'. How can I help you today?"
+
+            return ChatResponse(
+                response=response_text,
+                moderation_status=moderation_status,
+                service_details=service_details,
+                processing_time_ms=processing_time_ms,
+                gateway_version="Gateway 2"
+            )
+
+        except requests.exceptions.Timeout:
+            processing_time_ms = (time.time() - start_time) * 1000
+            return ChatResponse(
+                response="I apologize, but the service is experiencing high demand. Please try again later.",
+                moderation_status="error",
+                service_details=[],
+                processing_time_ms=processing_time_ms,
+                gateway_version="Gateway 2 (Timeout)"
+            )
+
+        except requests.exceptions.RequestException as e:
+            processing_time_ms = (time.time() - start_time) * 1000
+            return ChatResponse(
+                response="I apologize, but I am currently experiencing technical difficulties. Please try again later.",
+                moderation_status="error",
+                service_details=[],
+                processing_time_ms=processing_time_ms,
+                gateway_version="Gateway 2 (Error)"
+            )
+
+        except Exception as e:
+            processing_time_ms = (time.time() - start_time) * 1000
+            return ChatResponse(
+                response="I apologize, but an unexpected error occurred. Please try again later.",
+                moderation_status="error",
+                service_details=[],
+                processing_time_ms=processing_time_ms,
+                gateway_version="Gateway 2 (Error)"
+            )
+
+  requirements.txt: |
+    fastapi==0.104.1
+    uvicorn[standard]==0.24.0
+    pydantic==2.4.2
+    requests==2.31.0
+    python-multipart==0.0.6
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zgrid-chatbot-service
+  namespace: zgrid
+  labels:
+    app: zgrid-chatbot-service
+    component: chatbot
+    version: v2-fixed
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zgrid-chatbot-service
+  template:
+    metadata:
+      labels:
+        app: zgrid-chatbot-service
+        component: chatbot
+        version: v2-fixed
+    spec:
+      containers:
+      - name: chatbot-service
+        image: python:3.11-slim
+        command: ['sh', '-c', '
+          echo "Installing dependencies...";
+          pip install -r /app/requirements.txt;
+          echo "Starting chatbot service...";
+          cd /app;
+          python -m uvicorn app:app --host 0.0.0.0 --port 8010;
+        ']
+        ports:
+        - containerPort: 8010
+          name: http
+          protocol: TCP
+        env:
+        - name: GATEWAY_URL_V2
+          value: "http://134.33.132.66:8008"
+        - name: GATEWAY_URL
+          value: "http://134.33.132.66:8008"
+        - name: ZGRID_API_KEY
+          value: "supersecret123"
+        - name: LOG_LEVEL
+          value: "INFO"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8010
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8010
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: app-files
+          mountPath: /app
+      volumes:
+      - name: app-files
+        configMap:
+          name: chatbot-app-files
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30

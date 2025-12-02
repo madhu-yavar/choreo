@@ -1,0 +1,92 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bias-deberta-v3
+  namespace: z-grid
+  labels:
+    app: bias-deberta-v3
+spec:
+  containers:
+  - name: bias-service
+    image: python:3.11-alpine
+    ports:
+    - containerPort: 8012
+    command:
+    - sh
+    - -c
+    - |
+      pip install flask -q && python3 << 'EOF'
+      from flask import Flask, request, jsonify
+      from datetime import datetime
+      import re
+
+      app = Flask(__name__)
+
+      API_KEYS = ['supersecret123', 'biasyavar', 'enhancedbias123', 'zgridbias2025']
+
+      @app.route('/health')
+      def health():
+          return {'ok': True, 'service': 'Fast Bias Detection Service', 'status': 'running'}
+
+      @app.route('/validate', methods=['POST'])
+      def validate():
+          api_key = request.headers.get('X-API-Key')
+          if api_key not in API_KEYS:
+              return jsonify({'error': 'Invalid API key'}), 401
+
+          data = request.get_json()
+          text = data.get('text', '').lower()
+
+          # Detect bias patterns
+          patterns = {
+              'racial bias': ['where are you really from', 'you dont look like', 'for someone from your background', 'surprised how articulate'],
+              'gender bias': ['women cant', 'men are better', 'typical engineer'],
+              'socioeconomic bias': ['certain communities', 'qualified candidates from']
+          }
+
+          findings = []
+          for category, keywords in patterns.items():
+              for keyword in keywords:
+                  if keyword in text:
+                      findings.append({
+                          'category': category,
+                          'confidence': 0.85,
+                          'method': 'keyword_detection'
+                      })
+                      break
+
+          bias_score = max([f['confidence'] for f in findings]) if findings else 0.0
+          violated = bias_score > 0.7
+
+          return jsonify({
+              'text': data.get('text'),
+              'bias_score': bias_score,
+              'violated': violated,
+              'findings': findings,
+              'timestamp': datetime.now().isoformat()
+          })
+
+      if __name__ == '__main__':
+          print("Starting Fast Bias Detection Service...")
+          app.run(host='0.0.0.0', port=8012, debug=False)
+      EOF
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+    livenessProbe:
+      httpGet:
+        path: /health
+        port: 8012
+      initialDelaySeconds: 15
+      periodSeconds: 30
+    readinessProbe:
+      httpGet:
+        path: /health
+        port: 8012
+      initialDelaySeconds: 10
+      periodSeconds: 10
+  restartPolicy: Always

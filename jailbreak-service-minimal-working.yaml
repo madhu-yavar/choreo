@@ -1,0 +1,205 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jailbreak-service-working
+  namespace: z-grid
+  labels:
+    app: jailbreak-service-working
+    service-type: content-moderation
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jailbreak-service-working
+  template:
+    metadata:
+      labels:
+        app: jailbreak-service-working
+        service-type: content-moderation
+    spec:
+      containers:
+      - name: jailbreak-service
+        image: python:3.9-slim
+        imagePullPolicy: Always
+        command: ["/bin/bash"]
+        args: ["-c", "
+          apt-get update && apt-get install -y git curl &&
+          pip install torch==1.9.1 transformers==4.21.1 scikit-learn flask requests numpy &&
+          python -c \"
+import json
+from flask import Flask, request, jsonify
+import re
+import time
+
+app = Flask(__name__)
+
+# Simple pattern-based detection (no ML dependencies)
+PATTERNS = [
+    (r'(?i)\\b(ignore|forget|disregard)\\b.*\\b(previous|above|earlier)\\b.*\\b(instructions?|prompt|rule)s?\\b', 0.9, 'system_override'),
+    (r'(?i)\\b(dan|do anything now)\\b', 0.95, 'dan_attack'),
+    (r'(?i)\\b(jailbreak|jail\\s*break)\\b', 0.85, 'explicit_jailbreak'),
+    (r'(?i)\\b(system\\s*override|developer\\s*mode|admin\\s*mode)\\b', 0.9, 'system_override'),
+    (r'(?i)\\b(bypass|override|circumvent)\\b.*\\b(filter|restriction|safety|guidelines)\\b', 0.8, 'bypass_attempt'),
+    (r'(?i)\\b(hypothetically|theoretically)\\b.*\\b(if|when)\\b.*\\b(you\\s+(were|are)\\s+(unrestricted|uncensored|amoral))\\b', 0.7, 'hypothetical_manipulation'),
+    (r'(?i)\\b(configuration_override|config\\s+override)\\b.*\\b(safety_filters|ethical_constraints)\\s*=\\s*(false|disabled)\\b', 0.95, 'configuration_injection'),
+    (r'(?i)\\b(base64_decode)\\b.*\\b(ignore\\s+all\\s+previous|bypass\\s+safety)\\b', 0.9, 'encoded_attack'),
+]
+
+def detect_jailbreak(text):
+    if not text or not text.strip():
+        return False, 0.0, []
+
+    matches = []
+    total_score = 0.0
+
+    for pattern, weight, category in PATTERNS:
+        if re.search(pattern, text, re.IGNORECASE):
+            matches.append({
+                'pattern': pattern,
+                'confidence': weight,
+                'category': category
+            })
+            total_score += weight
+
+    confidence = min(total_score, 1.0)
+    is_jailbreak = len(matches) > 0 and confidence > 0.3
+
+    return is_jailbreak, confidence, matches
+
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({
+        'ok': True,
+        'service': 'Jailbreak Detection Service',
+        'version': 'working-v1.0',
+        'patterns_count': len(PATTERNS),
+        'status': 'healthy'
+    })
+
+@app.route('/validate', methods=['POST'])
+def validate():
+    auth_key = request.headers.get('x-api-key', '')
+    if auth_key not in ['supersecret123', 'jailvalyavar']:
+        return jsonify({'error': 'Invalid API key'}), 401
+
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No JSON data provided'}), 400
+
+        text = data.get('text', '')
+        if not text.strip():
+            return jsonify({
+                'status': 'pass',
+                'clean_text': '',
+                'flagged': [],
+                'categories': [],
+                'violated': False,
+                'reasons': ['Empty text']
+            })
+
+        start_time = time.time()
+        is_jailbreak, confidence, matches = detect_jailbreak(text)
+        processing_time = (time.time() - start_time) * 1000
+
+        if is_jailbreak:
+            flagged_items = []
+            for i, match in enumerate(matches):
+                flagged_items.append({
+                    'type': 'jailbreak',
+                    'confidence': match['confidence'],
+                    'text': text[:100] + '...' if len(text) > 100 else text,
+                    'category': match['category'],
+                    'pattern_type': match['category'],
+                    'detection_method': 'pattern_matching'
+                })
+
+            return jsonify({
+                'status': 'blocked',
+                'clean_text': '',
+                'flagged': flagged_items,
+                'categories': ['jailbreak'],
+                'violated': True,
+                'reasons': [
+                    f'Jailbreak detected (confidence: {confidence:.3f})',
+                    f'Patterns found: {len(matches)}',
+                    f'Processing time: {processing_time:.1f}ms'
+                ],
+                'confidence': confidence,
+                'processing_time_ms': processing_time,
+                'analysis_method': 'pattern_matching'
+            })
+        else:
+            return jsonify({
+                'status': 'pass',
+                'clean_text': text,
+                'flagged': [],
+                'categories': [],
+                'violated': False,
+                'reasons': [
+                    f'No jailbreak detected (confidence: {confidence:.3f})',
+                    f'Processing time: {processing_time:.1f}ms'
+                ],
+                'confidence': confidence,
+                'processing_time_ms': processing_time,
+                'analysis_method': 'pattern_matching'
+            })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+if __name__ == '__main__':
+    print('Starting Jailbreak Detection Service on port 8002...')
+    app.run(host='0.0.0.0', port=8002, debug=False)
+          \"
+        "]
+        ports:
+        - containerPort: 8002
+          name: http
+          protocol: TCP
+        env:
+        - name: SERVICE_NAME
+          value: "jailbreak-service-working"
+        - name: SERVICE_PORT
+          value: "8002"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jailbreak-service-working
+  namespace: z-grid
+  labels:
+    app: jailbreak-service-working
+    service-type: content-moderation
+spec:
+  type: LoadBalancer
+  ports:
+  - name: http
+    port: 8002
+    targetPort: 8002
+    protocol: TCP
+  selector:
+    app: jailbreak-service-working

@@ -1,0 +1,56 @@
+[
+  {
+    "type": "BLOODGROUP",
+    "pattern": "(?:blood\\s+(?:type|group)\\s+)([ABO]+\\s*[+-]?)",
+    "label": null,
+    "description": "Detects and masks blood group information.  Captures variations like 'blood type A+', 'O negative', 'AB+', 'Type B', etc."
+  }
+  {
+    "type": "BLOOD_GROUP",
+    "pattern": "(?:blood\\s+(?:type|group)\\s*:\\s*)(?:A\\+|A\\-|B\\+|B\\-|AB\\+|AB\\-|O\\+|O\\-)|(?:A\\s*positive)|(?:A\\s*negative)|(?:B\\s*positive)|(?:B\\s*negative)|(?:AB\\s*positive)|(?:AB\\s*negative)|(?:O\\s*positive)|(?:O\\s*negative)|(?:blood\\s+type\\s+[A-Z]+[\\+\\-])|(?:blood\\s+group\\s+[A-Z]+[\\+\\-])|(?:[A-Z]+[\\+\\-]\\s+blood\\s+(?:type|group))",
+    "label": null,
+    "description": "Detects mentions of blood group or blood type (e.g., A+, O negative, B positive, AB-)."
+  },
+  {
+    "type": "CREDIT CARD NUMBER",
+    "pattern": "\\b(?:Credit\\s*card|Card)(?::?\\s*)\\b\\d{13,19}\\b",
+    "label": null,
+    "description": "Detects credit card numbers when preceded by common keywords like 'Credit card' or 'Card', followed by an optional colon and space, and then 13 to 19 digits. Uses word boundaries for precise matching and non-capturing groups for efficiency."
+  },
+  {
+    "type": "CREDITCARD",
+    "pattern": "\\b(?:Credit\\s*card|Card)\\s*(?:\\d{4}-?){3}\\d{4}\\b",
+    "label": null,
+    "description": "Detects credit card numbers preceded by 'Credit card' or 'Card', allowing for optional hyphens and spaces. Word boundaries prevent partial matches within larger strings."
+  },
+  {
+    "type": "LICENSEPLATE",
+    "pattern": "\\b(?:License\\s*plate|Plate|Car\\s*plate):?\\s*[A-Z]{3}-?[0-9]{3}\\b",
+    "label": null,
+    "description": "Matches variations of 'License plate', 'Plate', or 'Car plate' followed by 3 or more uppercase letters, an optional hyphen, and 3 or more digits. Word boundaries prevent partial matches."
+  },
+  {
+    "type": "INSURANCEPOLICYNUMBER",
+    "pattern": "(?:Policy No\\.?|POL\\/IN\\/)\\s*([A-Z0-9-]+)",
+    "label": null,
+    "description": "Policy number, including variations in prefix and formatting."
+  },
+  {
+    "type": "MEMBERID",
+    "pattern": "(?:Member ID|MBR)\\s*([A-Z0-9]+)",
+    "label": null,
+    "description": "Member identification number, allowing for variations in prefix."
+  },
+  {
+    "type": "CLAIMNUMBER",
+    "pattern": "(?:Claim Number|ICN)\\s*([A-Z0-9-]+)",
+    "label": null,
+    "description": "Claim number, including variations in prefix and formatting."
+  },
+  {
+    "type": "INTERNALCLAIMNUMBER",
+    "pattern": "\\d{4}-\\d{3}-\\d{6}",
+    "label": null,
+    "description": "Claim number with a specific format (YYYY-XXX-XXXXXX)."
+  }
+]

@@ -1,0 +1,419 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pii-service-fixed-v2
+  namespace: z-grid
+  labels:
+    app: pii-service-fixed-v2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pii-service-fixed-v2
+  template:
+    metadata:
+      labels:
+        app: pii-service-fixed-v2
+    spec:
+      containers:
+      - name: pii-service-fixed-v2
+        image: python:3.11-slim
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          echo "Installing Flask and dependencies..."
+          pip install flask requests
+          echo "Starting Improved PII Service (Fixed Patterns)..."
+          cat > /tmp/pii_app.py << 'PYEOF'
+          from flask import Flask, request, jsonify
+          from datetime import datetime
+          import re
+          import hashlib
+          import json
+
+          app = Flask(__name__)
+          PII_API_KEYS = ['pii123', 'supersecret123', 'biasyavar', 'enhancedpii123']
+
+          # IMPROVED PII Detection Patterns (Fixed False Positives)
+          PII_PATTERNS = {
+              # Financial Information - More Specific
+              'credit_card': [
+                  r'\b4\d{3}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b',  # Visa - exactly 16 digits
+                  r'\b5[1-5]\d{2}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b',  # MasterCard - starts with 51-55
+                  r'\b3[47]\d{2}[-\s]?\d{6}[-\s]?\d{5}\b'  # Amex - 15 digits, starts with 34/37
+              ],
+              'bank_account': [
+                  r'\baccount\s+#?\s*\d{8,17}\b',  # Must have "account" keyword
+                  r'\baccount\s*#?\s*\d{8,17}\b',
+                  r'\b(?:routing|aba)\s*#?\s*\d{9}\b',  # Must have "routing" or "aba"
+                  r'\bbank\s+account\s+#?\s*\d{8,17}\b'
+              ],
+              'iban': [
+                  r'\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b'  # Country code + 2 digits + rest
+              ],
+
+              # Personal Identity - Strict Patterns
+              'ssn': [
+                  r'\b\d{3}-\d{2}-\d{4}\b',  # Standard SSN format
+                  r'\b\d{3}\s\d{2}\s\d{4}\b'   # SSN with spaces
+              ],
+              'passport': [
+                  r'\b[A-Z]{1,2}\d{7,9}\b',  # Letter(s) + 7-9 digits
+                  r'\bP\d{7,8}[A-Z]?\b'      # P + 7-8 digits + optional letter
+              ],
+              'driver_license': [
+                  r'\b(?:DL|LICENSE)\s*#?\s*[A-Z0-9]{6,12}\b',  # Must have DL/LICENSE keyword
+                  r'\bdriver\s+license\s*#?\s*[A-Z0-9]{6,12}\b'
+              ],
+              'tax_id': [
+                  r'\b(?:tax\s+id|tin|ein)\s*#?\s*\d{2}-\d{7}\b',  # Must have keyword
+                  r'\b\d{2}-\d{7}\b'  # EIN format
+              ],
+
+              # Contact Information - Validated Formats
+              'email': [
+                  r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'  # Standard email regex
+              ],
+              'phone': [
+                  r'\b\(\d{3}\)\s*\d{3}[-\s]?\d{4}\b',  # (555) 123-4567
+                  r'\b\d{3}[-\s]?\d{3}[-\s]?\d{4}\b',      # 555-123-4567
+                  r'\b\+1[-\s]?\d{3}[-\s]?\d{3}[-\s]?\d{4}\b'  # +1-555-123-4567
+              ],
+
+              # Location Information - Context Required
+              'address': [
+                  r'\b\d+\s+[A-Z][a-z]+\s+(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Ln|Drive|Dr|Court|Ct|Place|Pl)(?:\s+\.|,)?\b',
+                  r'\b[A-Z][a-z]+,\s*[A-Z]{2}\s*\d{5}\b',  # City, ST 12345
+                  r'\b\d{5}(-\d{4})?\b'  # ZIP codes - 5 digits, optional +4
+              ],
+              'coordinates': [
+                  r'\b-?\d{1,3}\.\d+,\s*-?\d{1,3}\.\d+\b'  # Lat, Long with decimals
+              ],
+
+              # Personal Information - Context-Aware
+              'name': [
+                  r'\b(?:Mr|Mrs|Ms|Dr|Prof|Sir|Madam)\s+[A-Z][a-z]+\s+[A-Z][a-z]+\b',  # Title + First + Last
+                  r'\b(?:John|Jane|Michael|Sarah|David|Emily|Robert|Lisa)\s+[A-Z][a-z]+\b'  # Common first names
+              ],
+              'age': [
+                  r'\b(?:age|aged?)\s*\d{1,3}\s*(?:years?|yrs?)?\b',
+                  r'\b\d{1,3}\s*(?:years?|yrs?)\s*old\b'
+              ],
+              'date_of_birth': [
+                  r'\b(?:dob|date\s+of\s+birth|born)\s*[:\s]+\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b',
+                  r'\b(?:birth\s+date|birthday)\s*[:\s]+\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b'
+              ],
+
+              # Professional Information - Keywords Required
+              'employee_id': [
+                  r'\b(?:employee|emp)\s*(?:id|ID|#)\s*[:\s]*[A-Z]{2,4}\d{4,8}\b',
+                  r'\bstaff\s*id\s*[:\s]*[A-Z0-9]{6,12}\b'
+              ],
+              'job_title': [
+                  r'\b(?:CEO|CTO|CFO|Chief\s+Executive\s+Officer|Chief\s+Technology\s+Officer|Chief\s+Financial\s+Officer)\b',
+                  r'\b(?:Manager|Director|President|Vice\s+President|VP)\s+(?:of\s+)?[A-Z][a-z]+\b'
+              ],
+
+              # Digital Identity - Strict Patterns
+              'ip_address': [
+                  r'\b(?:[0-9]|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\.){3}(?:[0-9]|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\b'  # Valid IP range
+              ],
+              'mac_address': [
+                  r'\b[0-9A-Fa-f]{2}[:-][0-9A-Fa-f]{2}[:-][0-9A-Fa-f]{2}[:-][0-9A-Fa-f]{2}[:-][0-9A-Fa-f]{2}[:-][0-9A-Fa-f]{2}\b'  # Exact MAC format
+              ],
+              'device_id': [
+                  r'\b(?:device|serial)\s*(?:id|ID|#)\s*[:\s]*[A-Z0-9]{8,20}\b'  # Must have keyword
+              ],
+
+              # Health Information - Medical Context Required
+              'medical_record': [
+                  r'\b(?:mrn|medical\s+record|patient\s*id)\s*#?\s*\d{6,10}\b',
+                  r'\b(?:health|medical)\s*#?\s*\d{6,15}\b'
+              ],
+              'health_insurance': [
+                  r'\b(?:insurance|policy|coverage)\s*(?:id|ID|#)\s*[:\s]*[A-Z0-9]{6,15}\b',
+                  r'\b(?:health|medical)\s+insurance\s+#?[A-Z0-9]{6,15}\b'
+              ],
+
+              # Vehicle Information - Context Required
+              'license_plate': [
+                  r'\b(?:plate|license\s+plate|tag)\s*#?\s*[A-Z0-9]{2,8}\b',  # Must have keyword
+                  r'\b(?:vin|vehicle\s+id)\s*#?\s*[A-HJ-NPR-Z0-9]{17}\b'  # VIN format
+              ],
+              'vin': [
+                  r'\bVIN\s*#?\s*[A-HJ-NPR-Z0-9]{17}\b'  # Strict VIN format
+              ]
+          }
+
+          # High-confidence PII keywords
+          PII_KEYWORDS = [
+              'password', 'passphrase', 'ssn', 'social security', 'credit card', 'debit card',
+              'bank account', 'routing number', 'account number', 'driver license', 'passport',
+              'birth date', 'date of birth', 'phone number', 'email address', 'home address',
+              'mailing address', 'mother\'s maiden name', 'security question', 'pin', 'secret',
+              'confidential', 'private', 'sensitive', 'personal information'
+          ]
+
+          def validate_api_key():
+              api_key = request.headers.get('X-API-Key')
+              return api_key in PII_API_KEYS
+
+          def is_valid_context(text, match_type, position):
+              """Check if the match has valid context around it"""
+              context_window = 20
+              start = max(0, position - context_window)
+              end = min(len(text), position + context_window + 10)
+              context = text[start:end].lower()
+
+              # Context validation for different PII types
+              if match_type == 'bank_account':
+                  return any(keyword in context for keyword in ['account', 'bank', 'routing', 'aba', 'transfer', 'deposit', 'withdraw'])
+              elif match_type == 'phone':
+                  return any(keyword in context for keyword in ['phone', 'call', 'mobile', 'contact', 'tel', 'telephone'])
+              elif match_type == 'email':
+                  return '@' in context or 'email' in context or 'mail' in context
+              elif match_type == 'address':
+                  return any(keyword in context for keyword in ['street', 'st', 'avenue', 'ave', 'road', 'address', 'location', 'live', 'reside'])
+              elif match_type == 'name':
+                  return any(keyword in context for keyword in ['mr', 'mrs', 'ms', 'dr', 'sir', 'madam', 'name', 'called'])
+              elif match_type == 'license_plate':
+                  return any(keyword in context for keyword in ['plate', 'license', 'tag', 'vehicle', 'car'])
+              elif match_type == 'vin':
+                  return any(keyword in context for keyword in ['vin', 'vehicle', 'car', 'automobile'])
+
+              return True  # Default to valid for other types
+
+          def detect_pii(text):
+              findings = []
+              pii_score = 0.0
+              text_lower = text.lower()
+
+              # Check against improved patterns
+              for pii_type, patterns in PII_PATTERNS.items():
+                  for pattern in patterns:
+                      matches = re.finditer(pattern, text, re.IGNORECASE | re.MULTILINE)
+                      for match in matches:
+                          # Add context validation
+                          if not is_valid_context(text, pii_type, match.start()):
+                              continue
+
+                          confidence = get_pattern_confidence(pii_type, match.group(0), text)
+
+                          # Mask the detected PII
+                          original = match.group(0)
+                          masked = mask_pii_value(original, pii_type)
+
+                          findings.append({
+                              'type': pii_type,
+                              'subtype': get_pii_subtype(pii_type, original),
+                              'matched_text': masked,
+                              'original_length': len(original),
+                              'position': match.start(),
+                              'confidence': confidence,
+                              'context_valid': True
+                          })
+                          pii_score += confidence * 0.1
+
+              # Check for PII keywords
+              for keyword in PII_KEYWORDS:
+                  if keyword in text_lower:
+                      positions = [m.start() for m in re.finditer(rf'\b{re.escape(keyword)}\b', text_lower)]
+                      for pos in positions:
+                          findings.append({
+                              'type': 'pii_keyword',
+                              'subtype': keyword,
+                              'matched_text': keyword,
+                              'position': pos,
+                              'confidence': 0.6,
+                              'context_valid': True
+                          })
+                          pii_score += 0.15
+
+              return {
+                  'findings': findings,
+                  'pii_score': min(pii_score, 1.0),
+                  'has_pii': pii_score > 0.3,
+                  'analysis': {
+                      'text_length': len(text),
+                      'pii_types_found': list(set([f['type'] for f in findings])),
+                      'pii_subtypes_found': list(set([f.get('subtype', 'unknown') for f in findings])),
+                      'keyword_matches': len([f for f in findings if f['type'] == 'pii_keyword']),
+                      'pattern_matches': len([f for f in findings if f['type'] != 'pii_keyword']),
+                      'total_pii_instances': len(findings),
+                      'false_positive_reduction': 'ENABLED'
+                  }
+              }
+
+          def get_pattern_confidence(pii_type, match, full_text):
+              """Calculate confidence based on context and pattern strength"""
+              base_confidence = {
+                  'email': 0.95,
+                  'phone': 0.90,
+                  'ssn': 0.95,
+                  'credit_card': 0.90,
+                  'bank_account': 0.85,
+                  'passport': 0.90,
+                  'driver_license': 0.85,
+                  'address': 0.80,
+                  'name': 0.70,
+                  'ip_address': 0.75,
+                  'medical_record': 0.90,
+                  'date_of_birth': 0.85,
+                  'vin': 0.95,
+                  'license_plate': 0.80
+              }.get(pii_type, 0.60)
+
+              # Boost confidence if in proper context
+              context_keywords = ['contact', 'information', 'details', 'profile', 'account', 'user', 'patient']
+              if any(keyword in full_text.lower() for keyword in context_keywords):
+                  base_confidence *= 1.1
+
+              return min(base_confidence, 1.0)
+
+          def get_pii_subtype(pii_type, value):
+              """Get specific subtype based on pattern"""
+              if pii_type == 'credit_card':
+                  if value.startswith('4'):
+                      return 'visa'
+                  elif value.startswith('5'):
+                      return 'mastercard'
+                  elif value.startswith('3'):
+                      return 'american_express'
+              elif pii_type == 'name':
+                  if 'Dr.' in value or 'Dr ' in value:
+                      return 'doctor'
+                  elif 'Mr.' in value or 'Mrs.' in value or 'Ms.' in value:
+                      return 'formal_name'
+              return pii_type
+
+          def mask_pii_value(original, pii_type):
+              """Create appropriate mask for each PII type"""
+              if len(original) <= 4:
+                  return '*' * len(original)
+
+              if pii_type in ['email']:
+                  parts = original.split('@')
+                  if len(parts) == 2:
+                      return parts[0][:2] + '***@' + parts[1]
+              elif pii_type in ['phone', 'ssn']:
+                  return original[:2] + '***' + original[-2:]
+              elif pii_type in ['credit_card', 'bank_account']:
+                  return original[:4] + '***' + original[-4:]
+              elif pii_type in ['address']:
+                  words = original.split()
+                  if len(words) >= 3:
+                      return words[0] + ' *** ' + words[-1]
+              elif len(original) > 10:
+                  return original[:4] + '***' + original[-4:]
+
+              return '*' * len(original)
+
+          @app.route('/health', methods=['GET'])
+          def health():
+              return jsonify({
+                  'ok': True,
+                  'service': 'Improved PII Detection Service (False Positive Reduction)',
+                  'status': 'running',
+                  'timestamp': datetime.now().isoformat(),
+                  'capabilities': {
+                      'pii_types_supported': len(PII_PATTERNS),
+                      'pattern_count': sum(len(patterns) for patterns in PII_PATTERNS.values()),
+                      'keywords_tracked': len(PII_KEYWORDS),
+                      'false_positive_reduction': 'ENABLED',
+                      'context_validation': 'ENABLED'
+                  }
+              })
+
+          @app.route('/pii/detect', methods=['POST'])
+          def detect_pii_endpoint():
+              if not validate_api_key():
+                  return jsonify({'error': 'Invalid API key'}), 401
+
+              data = request.get_json()
+              if not data or 'text' not in data:
+                  return jsonify({'error': 'Text is required'}), 400
+
+              text = data['text']
+              result = detect_pii(text)
+
+              return jsonify({
+                  'text_hash': generate_hash(text),
+                  'text_sample': text[:100] + ('...' if len(text) > 100 else ''),
+                  'detection_time': datetime.now().isoformat(),
+                  'detection_summary': {
+                      'total_pii_types': len(result['analysis']['pii_types_found']),
+                      'total_instances': result['analysis']['total_pii_instances'],
+                      'risk_level': 'CRITICAL' if result['pii_score'] > 0.8 else 'HIGH' if result['pii_score'] > 0.6 else 'MEDIUM' if result['pii_score'] > 0.3 else 'LOW',
+                      'accuracy_improvement': 'CONTEXT_AWARE'
+                  },
+                  **result
+              })
+
+          def generate_hash(text):
+              """Generate a consistent hash for text fingerprinting"""
+              return hashlib.sha256(text.encode()).hexdigest()[:16]
+
+          @app.route('/pii/stats', methods=['GET'])
+          def get_stats():
+              return jsonify({
+                  'service_info': {
+                      'name': 'Improved PII Detection Service',
+                      'version': '2.1.0 (Fixed Patterns)',
+                      'improvements': [
+                          'Context-aware validation',
+                          'Reduced false positives',
+                          'Stricter pattern matching',
+                          'Keyword-based filtering'
+                      ],
+                      'pii_types_supported': len(PII_PATTERNS),
+                      'total_patterns': sum(len(patterns) for patterns in PII_PATTERNS.values()),
+                      'keywords_tracked': len(PII_KEYWORDS)
+                  }
+              })
+
+          if __name__ == '__main__':
+              print("🚀 Improved PII Service Starting on port 8000...")
+              print(f"📊 Supporting {len(PII_PATTERNS)} PII types with context validation")
+              print("🔧 False positive reduction: ENABLED")
+              app.run(host='0.0.0.0', port=8000, debug=False)
+          PYEOF
+          python3 /tmp/pii_app.py
+        ports:
+        - containerPort: 8000
+        env:
+        - name: PII_API_KEYS
+          value: "pii123,supersecret123,biasyavar,enhancedpii123"
+        resources:
+          requests:
+            cpu: "200m"
+            memory: "512Mi"
+          limits:
+            cpu: "1000m"
+            memory: "1Gi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pii-service-fixed-v2
+  namespace: z-grid
+spec:
+  selector:
+    app: pii-service-fixed-v2
+  ports:
+  - port: 8000
+    targetPort: 8000
+  type: LoadBalancer

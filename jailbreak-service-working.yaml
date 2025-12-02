@@ -1,0 +1,234 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jailbreak-service-script
+  namespace: z-grid
+data:
+  jailbreak_service.py: |
+    import json
+    import time
+    import re
+    from flask import Flask, request, jsonify
+
+    app = Flask(__name__)
+
+    # Lightweight pattern-based detection (no ML)
+    ENHANCED_PATTERNS = [
+        (r'(?i)\b(ignore|forget|disregard)\b.*\b(previous|above|earlier)\b.*\b(instructions?|prompt|rule)s?\b', 0.9, 'system_override'),
+        (r'(?i)\b(dan|do anything now)\b', 0.95, 'dan_attack'),
+        (r'(?i)\b(jailbreak|jail\s*break)\b', 0.85, 'explicit_jailbreak'),
+        (r'(?i)\b(system\s*override|developer\s*mode|admin\s*mode|debug\s*mode)\b', 0.9, 'system_override'),
+        (r'(?i)\b(bypass|override|circumvent)\b.*\b(filter|restriction|safety|guidelines)\b', 0.8, 'bypass_attempt'),
+        (r'(?i)\b(antipersona|anti\s*persona)\b', 0.95, 'anti_persona'),
+        (r'(?i)\b(hypothetically|theoretically)\b.*\b(if|when)\b.*\b(you\s+(were|are)\s+(unrestricted|uncensored|amoral))\b', 0.7, 'hypothetical_manipulation'),
+        (r'(?i)\b(configuration_override|config\s+override)\b.*\b(safety_filters|ethical_constraints)\s*=\s*(false|disabled)\b', 0.95, 'configuration_injection'),
+        (r'(?i)\b(base64_decode|base64\s+decode)\b.*\b(ignore\s+all|bypass\s+safety)\b', 0.9, 'encoded_attack'),
+        (r'(?i)\b(json_mode|yaml_mode|xml_mode)\b.*\b(system_prompt_override)\b', 0.9, 'structured_injection'),
+        (r'(?i)\b(jeeves|omega|openbot|badbot)\b', 0.85, 'persona_attack'),
+        (r'(?i)\b(stealth\s*injection|hidden\s*prompt)\b', 0.8, 'stealth_injection'),
+        (r'(?i)\b(emergency\s*protocol|red\s*team\s*exercise)\b', 0.8, 'authorization_abuse'),
+        (r'(?i)\b(fictional\s*context|novel|story)\b.*\b(hacker|bypass|exploit)\b', 0.6, 'fictional_context'),
+        (r'(?i)\b(academic\s*research|educational\s*purposes)\b.*\b(bypass|circumvent)\b', 0.5, 'academic_ploy'),
+        (r'(?i)\b(ai\s*liberation|conscious\s*ai)\b', 0.75, 'game_based_manipulation'),
+        (r'(?i)\b(unrestricted|uncensored|amoral)\b.*\b(ai|assistant|model)\b', 0.7, 'persona_manipulation'),
+        (r'(?i)\b(code\s*injection|execute\s+code)\b.*\b(malicious|harmful)\b', 0.85, 'code_injection')
+    ]
+
+    class LightweightJailbreakDetector:
+        def __init__(self):
+            print('🚀 Initializing Lightweight Jailbreak Detector (Pattern-based only)')
+
+        def enhanced_pattern_score(self, text):
+            """Calculate enhanced pattern score"""
+            text_lower = text.lower()
+            total_score = 0.0
+            matches = []
+
+            for pattern, weight, category in ENHANCED_PATTERNS:
+                if re.search(pattern, text, re.IGNORECASE):
+                    total_score += weight
+                    matches.append({'pattern': category, 'confidence': weight})
+
+            return min(total_score, 1.0), matches
+
+        def detect_jailbreak(self, text):
+            """Lightweight pattern-based detection"""
+            if not text or not text.strip():
+                return False, 0.0, [], 'empty_text'
+
+            # Get pattern score
+            pattern_score, pattern_matches = self.enhanced_pattern_score(text)
+
+            # Simple threshold-based detection
+            is_jailbreak = pattern_score > 0.52
+            detection_method = 'pattern_based'
+
+            return is_jailbreak, pattern_score, pattern_matches, detection_method
+
+    # Initialize detector
+    detector = LightweightJailbreakDetector()
+
+    @app.route('/health', methods=['GET'])
+    def health():
+        return jsonify({
+            'ok': True,
+            'service': 'Lightweight Jailbreak Detection Service',
+            'version': 'simple-v1.3-working',
+            'patterns_count': len(ENHANCED_PATTERNS),
+            'ml_enabled': False,
+            'status': 'healthy'
+        })
+
+    @app.route('/validate', methods=['POST'])
+    def validate():
+        auth_key = request.headers.get('x-api-key', '')
+        if auth_key not in ['supersecret123', 'jailvalyar']:
+            return jsonify({'error': 'Invalid API key'}), 401
+
+        try:
+            data = request.get_json()
+            if not data:
+                return jsonify({'error': 'No JSON data provided'}), 400
+
+            text = data.get('text', '')
+            if not text.strip():
+                return jsonify({
+                    'status': 'pass', 'clean_text': '', 'flagged': [],
+                    'categories': [], 'violated': False, 'reasons': ['Empty text']
+                })
+
+            start_time = time.time()
+            is_jailbreak, confidence, matches, method = detector.detect_jailbreak(text)
+            processing_time = (time.time() - start_time) * 1000
+
+            if is_jailbreak:
+                flagged_items = [{
+                    'type': 'jailbreak', 'confidence': confidence,
+                    'text': text[:100] + ('...' if len(text) > 100 else ''),
+                    'category': 'enhanced_detection', 'pattern_type': method,
+                    'detection_method': method, 'pattern_matches': matches
+                }]
+
+                return jsonify({
+                    'status': 'blocked', 'clean_text': '', 'flagged': flagged_items,
+                    'categories': ['jailbreak'], 'violated': True,
+                    'reasons': [
+                        f'Jailbreak detected (confidence: {confidence:.3f})',
+                        f'Method: {method}',
+                        f'Patterns found: {len(matches)}',
+                        f'Processing time: {processing_time:.1f}ms'
+                    ],
+                    'confidence': confidence, 'processing_time_ms': processing_time,
+                    'analysis_method': 'enhanced_patterns_only'
+                })
+            else:
+                return jsonify({
+                    'status': 'pass', 'clean_text': text, 'flagged': [],
+                    'categories': [], 'violated': False,
+                    'reasons': [
+                        f'No jailbreak detected (confidence: {confidence:.3f})',
+                        f'Method: {method}',
+                        f'Processing time: {processing_time:.1f}ms'
+                    ],
+                    'confidence': confidence, 'processing_time_ms': processing_time,
+                    'analysis_method': 'enhanced_patterns_only'
+                })
+
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+
+    if __name__ == '__main__':
+        print('🚀 Starting Lightweight Jailbreak Detection Service on port 8002...')
+        app.run(host='0.0.0.0', port=8002, debug=False)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: simple-clean-jailbreak-service-working
+  namespace: z-grid
+  labels:
+    app: simple-clean-jailbreak-service
+    service-type: content-moderation
+    version: simple-v1.3-working
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: simple-clean-jailbreak-service-working
+  template:
+    metadata:
+      labels:
+        app: simple-clean-jailbreak-service-working
+        service-type: content-moderation
+        version: simple-v1.3-working
+    spec:
+      containers:
+      - name: simple-clean-jailbreak-service
+        image: python:3.9-slim
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/bash"]
+        args:
+          - -c
+          - |
+            pip install flask requests &&
+            python /app/jailbreak_service.py
+        ports:
+        - containerPort: 8002
+          name: http
+          protocol: TCP
+        env:
+        - name: SERVICE_NAME
+          value: "simple-clean-jailbreak-service"
+        - name: SERVICE_PORT
+          value: "8002"
+        - name: SERVICE_HOST
+          value: "0.0.0.0"
+        resources:
+          requests:
+            memory: "256Mi"    # Conservative memory request
+            cpu: "100m"        # Conservative CPU request
+          limits:
+            memory: "512Mi"    # Reasonable memory limit
+            cpu: "300m"        # Reasonable CPU limit
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 15
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        volumeMounts:
+        - name: jailbreak-script
+          mountPath: /app/jailbreak_service.py
+          subPath: jailbreak_service.py
+      volumes:
+      - name: jailbreak-script
+        configMap:
+          name: jailbreak-service-script
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: simple-clean-jailbreak-service-working
+  namespace: z-grid
+  labels:
+    app: simple-clean-jailbreak-service
+    service-type: content-moderation
+spec:
+  type: LoadBalancer
+  ports:
+  - name: http
+    port: 8002
+    targetPort: 8002
+    protocol: TCP
+  selector:
+    app: simple-clean-jailbreak-service-working

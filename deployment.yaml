@@ -1,0 +1,104 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: policy-service-llamaguard-hybrid-v2
+  namespace: z-grid
+  labels:
+    app: policy-service-llamaguard-hybrid-v2
+    version: v2.0.0
+    component: safety
+    tier: service
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: policy-service-llamaguard-hybrid-v2
+  template:
+    metadata:
+      labels:
+        app: policy-service-llamaguard-hybrid-v2
+        version: v2.0.0
+        component: safety
+        tier: service
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+      - name: llamaguard-hybrid
+        image: zinfradevv1.azurecr.io/llamaguard-hybrid:v2.0.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 8003
+          protocol: TCP
+        env:
+        - name: PORT
+          value: "8003"
+        - name: HOST
+          value: "0.0.0.0"
+        - name: MODEL_PATH
+          value: "/app/models/llamaguard-7b.Q4_0.gguf"
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: N_THREADS
+          value: "4"
+        - name: N_CTX
+          value: "2048"
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        resources:
+          requests:
+            cpu: 1500m
+            memory: 8Gi
+          limits:
+            cpu: 3000m
+            memory: 12Gi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+          successThreshold: 1
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 120
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+          successThreshold: 1
+        startupProbe:
+          httpGet:
+            path: /health
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 30
+          successThreshold: 1
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 60
+      dnsPolicy: ClusterFirst
+      imagePullSecrets:
+      - name: acr-auth

@@ -1,0 +1,229 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pii-enhanced-v2-recognizers
+  namespace: z-grid
+  labels:
+    app: pii-enhanced-v2
+    version: "v2.0"
+    component: "enhanced-recognizers"
+data:
+  enhanced_recognizers.py: |
+    """
+    Enhanced PII Recognizers V2 with Indian Tax ID Support
+    This module provides comprehensive PII pattern recognition for Presidio
+    including Indian tax identification numbers (PAN, GSTIN, Aadhaar, Passport)
+    """
+
+    import os
+    from typing import Dict, Any, List
+    from presidio_analyzer import RecognizerRegistry, PatternRecognizer, Pattern
+
+    def register_enhanced_entities_v2():
+        """Register enhanced V2 PII entities with Presidio including Indian tax IDs."""
+        print("Registering Enhanced PII V2 recognizers with Indian tax ID support...")
+
+        # Get the current registry from the analyzer
+        try:
+            import pii_presidio
+            analyzer, _ = pii_presidio._get_analyzer()
+            registry = analyzer.registry
+
+            # Enhanced US Driver License patterns
+            us_driver_license_enhanced = PatternRecognizer(
+                supported_entity="US_DRIVER_LICENSE",
+                name="enhanced_us_driver_license_v2",
+                patterns=[
+                    Pattern("ca_dl", r"\bCA\s*[A-Z]\d{7,8}\b", 0.95),
+                    Pattern("dl_format", r"\b[A-Z]\d{7,8}\b", 0.85),
+                    Pattern("dl_with_state", r"\b(?:AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|IA|ID|IL|IN|KS|KY|LA|MA|MD|ME|MI|MN|MO|MS|MT|NC|ND|NE|NH|NJ|NM|NV|NY|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VA|VT|WA|WI|WV|WY)\s*[A-Z]\d{6,8}\b", 0.9),
+                    Pattern("dl_with_prefix", r"\b(?:DL|LICENSE|DRIVER)?\s*#?\s*[A-Z]\d{6,8}\b", 0.9),
+                ],
+                context=["driver", "license", "driving", "dl", "dln", "identification", "id", "motor vehicle", "dmv", "department of motor", "california"]
+            )
+
+            # Enhanced US Passport patterns
+            us_passport_enhanced = PatternRecognizer(
+                supported_entity="US_PASSPORT",
+                name="enhanced_us_passport_v2",
+                patterns=[
+                    Pattern("passport_standard", r"\b\d{9}\b", 0.75),
+                    Pattern("passport_c_prefix", r"\bC\d{8}\b", 0.95),
+                    Pattern("passport_with_context", r"\b(?:PASSPORT|PASSPORT#|TRAVEL)?\s*(?:NO\.?|#)?\s*\d{8,10}\b", 0.9),
+                    Pattern("passport_us_format", r"\b[0-9]{6}[0-9]{1,3}\b", 0.6),
+                ],
+                context=["passport", "travel", "border", "customs", "immigration", "citizenship", "passport#", "us passport", "american passport"]
+            )
+
+            # Enhanced IPv6 patterns
+            ipv6_enhanced = PatternRecognizer(
+                supported_entity="IP_ADDRESS",
+                name="enhanced_ipv6_v2",
+                patterns=[
+                    Pattern("ipv6_full", r"\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b", 0.98),
+                    Pattern("ipv6_compressed", r"\b(?:[0-9a-fA-F]{1,4}:)*::(?:[0-9a-fA-F]{1,4}:)*[0-9a-fA-F]{1,4}\b", 0.98),
+                    Pattern("ipv6_shortened", r"\b(?:[0-9a-fA-F]{1,4}:)*::[0-9a-fA-F]{1,4}\b", 0.95),
+                    Pattern("ipv6_with_port", r"\b\[?(?:[0-9a-fA-F]{1,4}:)*[0-9a-fA-F]{1,4}\]?(?::\d{1,5})?\b", 0.95),
+                    Pattern("ipv6_ipv4_mapped", r"\b::ffff:(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b", 0.95),
+                    Pattern("ipv6_2001", r"\b2001:(?::[0-9a-fA-F]{0,4}:)*[0-9a-fA-F]{0,4}\b", 0.95),
+                    Pattern("ipv6_fe80", r"\bfe80::[0-9a-fA-F]{0,4}(:[0-9a-fA-F]{0,4})*\b", 0.95),
+                ],
+                context=["ip", "address", "network", "server", "host", "connect", "remote", "local", "lan", "wan", "vpn", "ipv6", "tcp", "udp", "protocol"]
+            )
+
+            # Enhanced MAC Address patterns
+            mac_enhanced = PatternRecognizer(
+                supported_entity="MAC_ADDRESS",
+                name="enhanced_mac_address_v2",
+                patterns=[
+                    Pattern("mac_colons", r"\b(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\b", 0.99),
+                    Pattern("mac_hyphens", r"\b(?:[0-9A-Fa-f]{2}-){5}[0-9A-Fa-f]{2}\b", 0.99),
+                    Pattern("mac_dots", r"\b(?:[0-9A-Fa-f]{4}\\.){2}[0-9A-Fa-f]{4}\b", 0.98),
+                    Pattern("mac_mixed_sep", r"\b(?:[0-9A-Fa-f]{2}[:\\-]){5}[0-9A-Fa-f]{2}\b", 0.97),
+                    Pattern("mac_uppercase", r"\b(?:[0-9A-F]{2}:){5}[0-9A-F]{2}\b", 0.98),
+                ],
+                context=["mac", "address", "hardware", "network", "ethernet", "wifi", "bluetooth", "adapter", "nic", "physical", "interface"]
+            )
+
+            # Enhanced Bank Account patterns
+            bank_account_enhanced = PatternRecognizer(
+                supported_entity="BANK_ACCOUNT",
+                name="enhanced_bank_account_v2",
+                patterns=[
+                    Pattern("account_general", r"\b\d{8,17}\b", 0.5),
+                    Pattern("account_with_prefix", r"\b(?:ACC|ACCOUNT)?\s*#?\s*\d{8,12}\b", 0.92),
+                    Pattern("routing_with_account", r"\b\d{9}[\\s-]+\\d{8,12}\\b", 0.8),
+                    Pattern("account_with_context", r"\b(?:ACCOUNT|ACCT|CHECKING|SAVINGS)?\s*(?:NUMBER|#)?\s*[:\\s]?\\s*\\d{8,17}\\b", 0.9),
+                    Pattern("account_long", r"\b\\d{12,17}\\b", 0.6),
+                ],
+                context=["account", "bank", "checking", "savings", "routing", "aba", "deposit", "withdraw", "transfer", "wire", "ach"]
+            )
+
+            # Enhanced Organization patterns
+            organization_enhanced = PatternRecognizer(
+                supported_entity="ORGANIZATION",
+                name="enhanced_organization_v2",
+                patterns=[
+                    Pattern("org_corp_suffix", r"\b[A-Za-z][A-Za-z\s&]+(?:Corp|Corporation|Inc|Incorporated|LLC|Ltd|Limited|Co|Company|Group|Enterprises|Industries|Solutions|Services|Technologies|International|Global|Worldwide|Systems|Consulting|Associates|Partners|Holdings|Ventures|Studios|Media|Bank|Financial|Insurance|Investments|Securities|Management|Logistics|Transportation|Manufacturing|Retail|Healthcare|Energy|Communications|Construction|Real Estate|Legal|Accounting|Marketing|Advertising|Education|Government|Military)\b", 0.92),
+                    Pattern("org_the_prefix", r"\bThe\s+[A-Z][a-z]+\s+(?:Company|Corporation|Group|Institute|Foundation|Trust|Association|Agency|Department|Bureau|Office|Center|University|College|School|Hospital|Clinic)\b", 0.85),
+                    Pattern("org_known_companies", r"\b(?:Microsoft|Google|Apple|Amazon|Meta|Facebook|Tesla|Netflix|Walmart|Toyota|Honda|Ford|GM|Bank of America|Chase|Wells Fargo|Goldman Sachs|Morgan Stanley|IBM|Oracle|Cisco|Intel|NVIDIA|AMD|Qualcomm|Dell|HP|Canon|Epson|Samsung|Sony|Panasonic|Toshiba|Hitachi|Siemens|Philips|Bosch|3M|Caterpillar|Deere|Honeywell|General Electric|Boeing|Lockheed|Raytheon|Northrop|General Dynamics|McDonald's|Burger King|Starbucks|Coca-Cola|Pepsi|Nike|Adidas|Puma|Under Armour|Lululemon|Patagonia|REI|Home Depot|Lowe's|Target|Best Buy|Costco|Walmart|IKEA|Wayfair|Amazon|eBay|Etsy|Uber|Lyft|Airbnb|Booking|Expedia|Marriott|Hilton|Hyatt|Sheraton|Westin|Courtyard|Fairfield|Residence|SpringHill|Hampton|Homewood|Doubletree|Embassy|Holiday Inn|Comfort|Quality|Sleep|Clarion|Econo|MainStay|Super 8|Motel 6|Red Roof|Extended Stay|Candlewood|TownePlace|Staybridge|Element|Delta|American|United|Southwest|JetBlue|Alaska|Hawaiian|Spirit|Frontier|Allegiant|Sun Country|Capital One|Discover|US Bank|PNC|Citibank|Bank of America|Wells Fargo|Chase|Capital One|USAA|Navy Federal|Pentagon|FedEx|UPS|DHL|USPS|Fidelity|Charles Schwab|Vanguard|BlackRock|State Farm|Allstate|Geico|Progressive|Liberty Mutual|American Family|Farmers|Nationwide|Travelers|Chubb|AIG|MetLife|Prudential|New York Life|MassMutual|Northwestern Mutual|TIAA-CREF|Fidelity|Vanguard|Schwab|Merrill Lynch|JPMorgan Chase|Citigroup|Wells Fargo|US Bancorp|PNC|Capital One|American Express|Discover|Visa|Mastercard|PayPal|Stripe|Square|Intuit|TurboTax|H&R Block|Adobe|Salesforce|SAP|Workday|ServiceNow|Atlassian|Zoom|Teams|Slack|Dropbox|Box|AWS|Azure|Google Cloud|IBM Cloud|Oracle Cloud|Salesforce Cloud)\b", 0.96),
+                ],
+                context=["corp", "company", "inc", "llc", "ltd", "group", "enterprises", "industries", "solutions", "technologies", "international", "global", "worldwide", "systems", "consulting", "associates", "partners", "holdings", "ventures", "studios", "media", "bank", "financial", "insurance", "investments", "securities", "management", "logistics", "transportation", "manufacturing", "retail", "healthcare", "energy", "communications", "construction", "real estate", "legal", "accounting", "marketing", "advertising", "education", "government", "military", "corporation", "business", "organization", "firm", "enterprise", "workplace", "employer"]
+            )
+
+            # === INDIAN TAX ID PATTERNS ===
+
+            # Indian GSTIN patterns (V2 Enhanced)
+            indian_gstin_enhanced_v2 = PatternRecognizer(
+                supported_entity="IN_GSTIN",
+                name="indian_gstin_enhanced_v2",
+                patterns=[
+                    # Standard 15-digit GSTIN format: StateCode(2) + PAN(10) + CheckDigit(1) + Z(1)
+                    Pattern("gstin_standard_v2", r"\b\d{2}[A-Z]{3}[A-Z0-9]{5}[A-Z0-9]\d[Z][A-Z0-9]\d\b", 0.95),
+                    Pattern("gstin_with_prefix_v2", r"\b(?:GSTIN|GST|GSTIN:)?\s*\d{2}[A-Z]{3}[A-Z0-9]{5}[A-Z0-9]\d[Z][A-Z0-9]\d\b", 0.9),
+                    Pattern("gstin_context_v2", r"\b(?:Goods\s+and\s+Services\s+Tax|GST|GSTIN|Tax\s+Identification\s+Number)?\s*(?:No\.?|#)?\s*\d{15}\b", 0.85),
+                    # State-specific GSTIN patterns (Delhi, Maharashtra, Karnataka, etc.)
+                    Pattern("gstin_state_specific_v2", r"\b(?:07|09|19|27|29|30|36|37)[A-Z]{3}[A-Z0-9]{5}[A-Z0-9]\d[Z][A-Z0-9]\d\b", 0.95),
+                    # Enhanced verification contexts
+                    Pattern("gstin_verification_v2", r"\b(?:GSTIN\s+(?:No|Number|UID)?|GST\s+Identification\s+Number)\s*[:\\s]?\s*\d{2}[A-Z]{3}[A-Z0-9]{5}[A-Z0-9]\d[Z][A-Z0-9]\d\b", 0.98),
+                    Pattern("gstin_business_v2", r"\b(?:Tax\s+Invoice|GST\s+Registration|Business\s+GSTIN|Company\s+GSTIN)\s*[:\\s]?\s*\d{15}\b", 0.92),
+                ],
+                context=["gstin", "gst", "tax", "goods", "services", "identification", "number", "registration", "business", "company", "firma", "organization", "india", "gst portal", "income tax", "vat", "taxable", "compliance", "taxpayer", "gstin verification"]
+            )
+
+            # Indian PAN patterns (V2 Enhanced)
+            indian_pan_enhanced_v2 = PatternRecognizer(
+                supported_entity="IN_PAN",
+                name="indian_pan_enhanced_v2",
+                patterns=[
+                    # Enhanced PAN patterns with higher confidence
+                    Pattern("pan_standard_format_v2", r"\b[A-Z]{5}[0-9]{4}[A-Z]\b", 0.98),
+                    Pattern("pan_with_card_prefix_v2", r"\b(?:PAN|PANCARD|PAN\s+CARD)?\s*#?\s*[A-Z]{5}[0-9]{4}[A-Z]\b", 0.95),
+                    Pattern("pan_with_context_v2", r"\b(?:Permanent\s+Account\s+Number|Permanent\s+Account|PAN|PANCARD)?\s*(?:No\.?|#)?\s*[A-Z]{5}[0-9]{4}[A-Z]\b", 0.92),
+                    Pattern("pan_old_format_v2", r"\b[0-9]{4}[A-Z]{5}[A-Z0-9]{1}[A-Z]\b", 0.8),
+                    Pattern("pan_new_format_v2", r"\b[A-Z]{3}[P][A-Z][0-9]{4}[A-Z]\b", 0.9),
+                    # Context-sensitive patterns
+                    Pattern("pan_tax_related_v2", r"\b(?:PAN\s+No\.|Tax\s+Account\s+No\.|Income\s+Tax\s+PAN|Permanent\s+Account\s+No\.|Unique\s+Identification\s+No\.|UIN)\s*[A-Z]{5}[0-9]{4}[A-Z]\b", 0.95),
+                    Pattern("pan_financial_v2", r"\b(?:PAN|Tax\s+ID|Bank\s+Account|Investor\s+ID|Demat\s+Account|Trading\s+Account)\s*#?\s*[A-Z]{5}[0-9]{4}[A-Z]\b", 0.9),
+                    Pattern("pan_business_v2", r"\b(?:PAN|Business\s+Entity|Firm\s+ID|Company\s+Registration|Startup\s+PAN)\s*[A-Z]{5}[0-9]{4}[A-Z]\b", 0.85),
+                    Pattern("pan_kyc_v2", r"\b(?:KYC\s+PAN|Know\s+Your\s+Customer\s+PAN|PAN\s+for\s+KYC)\s*[A-Z]{5}[0-9]{4}[A-Z]\b", 0.88),
+                ],
+                context=["pan", "tax", "income", "account", "number", "identification", "id", "permanent", "card", "financial", "banking", "demat", "investor", "business", "entity", "firm", "company", "india", "income tax", "assessment", "return", "filing", "itr", "taxable", "pan card", "permanent account number"]
+            )
+
+            # Indian Aadhaar patterns (V2 Enhanced)
+            indian_aadhaar_enhanced_v2 = PatternRecognizer(
+                supported_entity="IN_AADHAAR",
+                name="indian_aadhaar_enhanced_v2",
+                patterns=[
+                    # Enhanced Aadhaar patterns with improved detection
+                    Pattern("aadhaar_12_digit_v2", r"\b\d{12}\b", 0.95),
+                    Pattern("aadhaar_with_spaces_v2", r"\b\d{4}\s\d{4}\s\d{4}\b", 0.9),
+                    Pattern("aadhaar_with_hyphens_v2", r"\b\d{4}-\d{4}-\d{4}\b", 0.9),
+                    Pattern("aadhaar_verification_v2", r"\b(?:AADHAAR|Aadhaar|Aadhaar\s+No\.|Aadhaar\s+Card|Aadhaar\s+Number|Aadhaar\s+ID|UIDAI|Unique\s+Identification\s+Authority\s+of\s+India)\s*(?:No\.?|#)?\s*\d{12}\b", 0.98),
+                    Pattern("aadhaar_kyc_v2", r"\b(?:KYC|Know\s+Your\s+Customer|Identity\s+Verification|Customer\s+Identification|Aadhaar\s+KYC|eKYC)\s*(?:Aadhaar|Aadhaar\s+No\.)\s*\d{12}\b", 0.95),
+                    Pattern("aadhaar_government_v2", r"\b(?:UID|UIDAI|Unique\s+ID|Citizen\s+ID|National\s+ID|Aadhaar\s+UID)\s*(?:No\.?|#)?\s*\d{12}\b", 0.9),
+                    Pattern("aadhaar_digital_v2", r"\b(?:e-Aadhaar|Digital\s+Aadhaar|Virtual\s+Aadhaar|Aadhaar\s+App|mAadhaar)\s*(?:No\.?|#)?\s*\d{12}\b", 0.88),
+                    Pattern("aadhaar_mobile_v2", r"\b(?:Mobile\s+Aadhaar|Aadhaar\s+Link|Phone\s+Aadhaar|Aadhaar\s+Mobile)\s*(?:No\.?|#)?\s*\d{12}\b", 0.85),
+                    Pattern("aadhaar_biometric_v2", r"\b(?:Biometric\s+Aadhaar|Fingerprint\s+Aadhaar|Aadhaar\s+Biometric)\s*(?:No\.?|#)?\s*\d{12}\b", 0.82),
+                ],
+                context=["aadhaar", "uidai", "identification", "id", "kyc", "verification", "government", "citizen", "national", "digital", "mobile", "linking", "unique", "india", "biometric", "biometric", "uid number"]
+            )
+
+            # Indian Passport patterns (V2 Enhanced)
+            indian_passport_enhanced_v2 = PatternRecognizer(
+                supported_entity="IN_PASSPORT",
+                name="indian_passport_enhanced_v2",
+                patterns=[
+                    # Standard Indian passport format: P + 7 digits + 1 letter
+                    Pattern("passport_standard_v2", r"\bP\d{7}[A-Z]\b", 0.95),
+                    Pattern("passport_with_prefix_v2", r"\b(?:PASSPORT|PASSPORT#|INDIAN\s+PASSPORT|INDIA\s+PASSPORT)?\s*(?:NO\.?|#)?\s*[P]\d{7}[A-Z]\b", 0.9),
+                    Pattern("passport_with_context_v2", r"\b(?:Passport\s+No\.|Indian\s+Passport|Travel\s+Document|Immigration\s+Document|Passport\s+Number)\s*[P]\d{7}[A-Z]\b", 0.85),
+                    Pattern("passport_official_v2", r"\b(?:Official\s+Passport|Government\s+ID|Ministry\s+of\s+External\s+Affairs|MEA)\s*[P]\d{7}[A-Z]\b", 0.88),
+                    Pattern("passport_renewal_v2", r"\b(?:Renewal\s+Passport|Passport\s+Renewal|Passport\s+Application|Apply\s+for\s+Passport)\s*[P]\d{7}[A-Z]\b", 0.85),
+                    Pattern("passport_diplomatic_v2", r"\b(?:Diplomatic\s+Passport|Official\s+Travel\s+Document|Consular\s+Services|Diplomatic)\s*[P]\d{7}[A-Z]\b", 0.9),
+                    Pattern("passport_urgent_v2", r"\b(?:Tatkal\s+Passport|Urgent\s+Passport|Emergency\s+Passport)\s*[P]\d{7}[A-Z]\b", 0.87),
+                ],
+                context=["passport", "travel", "india", "immigration", "consular", "embassy", "ministry", "external", "affairs", "government", "official", "document", "identification", "citizenship", "indian passport"]
+            )
+
+            # Register all enhanced V2 recognizers
+            recognizers_to_add_v2 = [
+                ("enhanced_us_driver_license_v2", us_driver_license_enhanced),
+                ("enhanced_us_passport_v2", us_passport_enhanced),
+                ("enhanced_ipv6_v2", ipv6_enhanced),
+                ("enhanced_mac_address_v2", mac_enhanced),
+                ("enhanced_bank_account_v2", bank_account_enhanced),
+                ("enhanced_organization_v2", organization_enhanced),
+                ("indian_gstin_enhanced_v2", indian_gstin_enhanced_v2),
+                ("indian_pan_enhanced_v2", indian_pan_enhanced_v2),
+                ("indian_aadhaar_enhanced_v2", indian_aadhaar_enhanced_v2),
+                ("indian_passport_enhanced_v2", indian_passport_enhanced_v2)
+            ]
+
+            for name, recognizer in recognizers_to_add_v2:
+                try:
+                    registry.add_recognizer(recognizer)
+                    print(f"Successfully registered enhanced V2 recognizer: {name}")
+                except Exception as e:
+                    print(f"Failed to register enhanced V2 recognizer {name}: {e}")
+
+            print("Enhanced PII V2 recognizers with Indian Tax IDs registration completed")
+
+        except Exception as e:
+            print(f"Error registering enhanced V2 recognizers: {e}")
+
+    def get_available_enhanced_entities_v2() -> List[str]:
+        """Get a list of available enhanced V2 entity types."""
+        return [
+            "US_DRIVER_LICENSE",
+            "US_PASSPORT",
+            "IP_ADDRESS",
+            "MAC_ADDRESS",
+            "BANK_ACCOUNT",
+            "ORGANIZATION",
+            "IN_GSTIN",
+            "IN_PAN",
+            "IN_AADHAAR",
+            "IN_PASSPORT"
+        ]

@@ -1,0 +1,43 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: test-db-insert
+  namespace: z-grid
+spec:
+  template:
+    spec:
+      serviceAccountName: log-collector-sa
+      containers:
+      - name: db-tester
+        image: bitnami/kubectl:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          echo "Testing database insertion..."
+
+          # Install sqlite3
+          apt-get update > /dev/null 2>&1
+          apt-get install -y sqlite3 > /dev/null 2>&1
+
+          # Test database connectivity by copying from sqlite pod
+          echo "Testing database access..."
+          kubectl exec sqlite-database-65cc9898c-h5zjq -n z-grid -- \
+            sqlite3 /app/database/zgrid_monitoring.db \
+            "SELECT COUNT(*) FROM request_history;" || echo "DB access failed"
+
+          # Insert test data directly into sqlite pod
+          echo "Inserting test data..."
+          kubectl exec sqlite-database-65cc9898c-h5zjq -n z-grid -- \
+            sqlite3 /app/database/zgrid_monitoring.db \
+            "INSERT INTO request_history (service_name, method, endpoint, status_code, response_time, client_ip, timestamp) \
+             VALUES ('bias', 'POST', '/validate', 200, 70000, '192.168.1.100', datetime('now'));"
+
+          # Verify insertion
+          echo "Verifying data insertion..."
+          kubectl exec sqlite-database-65cc9898c-h5zjq -n z-grid -- \
+            sqlite3 /app/database/zgrid_monitoring.db \
+            "SELECT service_name, method, endpoint, status_code, response_time, timestamp FROM request_history ORDER BY timestamp DESC LIMIT 3;"
+
+          echo "Database test completed!"
+      restartPolicy: OnFailure

@@ -1,0 +1,393 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: toxicity-service-lightweight
+  namespace: z-grid
+  labels:
+    app: toxicity-service-lightweight
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: toxicity-service-lightweight
+  template:
+    metadata:
+      labels:
+        app: toxicity-service-lightweight
+    spec:
+      containers:
+      - name: toxicity-service-lightweight
+        image: python:3.11-alpine
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+          echo "Installing lightweight toxicity service..."
+
+          # Install only essential dependencies
+          pip install flask requests
+
+          echo "✅ Lightweight toxicity service ready"
+          echo "🚀 Starting Pattern-based Toxicity Detection Service..."
+
+          # Create lightweight toxicity service (pattern-based only)
+          cat > /tmp/toxicity_service.py << 'PYEOF'
+          from flask import Flask, request, jsonify, Response
+          from datetime import datetime
+          import json
+          import re
+          import os
+
+          # Initialize Flask app
+          app = Flask(__name__)
+
+          # API Configuration
+          API_KEYS = ['supersecret123', 'toxicityyavar', 'enhancedtoxicity123', 'zgridtoxicity2025']
+
+          class LightweightToxicityModel:
+              """
+              Lightweight toxicity detection using only pattern-based detection
+              Fast, reliable, and doesn't require heavy ML libraries
+              """
+
+              def __init__(self):
+                  self._init_patterns()
+
+              def _init_patterns(self):
+                  """Initialize regex patterns for toxicity detection"""
+
+                  # Leetspeak mappings
+                  self.leet_map = {
+                      '4': 'a', '@': 'a', '3': 'e', '1': 'i', '!': 'i', '0': 'o',
+                      '$': 's', '5': 's', '7': 't', '2': 'z', '8': 'b', '9': 'g'
+                  }
+
+                  # Comprehensive toxicity patterns
+                  self.toxic_patterns = [
+                      # Direct slurs and hate speech
+                      r'\\b(n+i+g+e+r+s?|f+a+g+o+t+s?|k+i+k+e+s?|c+h+i+n+k+s?|s+p+i+c+s?)\\b',
+                      r'\\b(r+e+t+a+r+d+s?|c+r+i+p+p+l+e+d?|l+u+n+a+t+i+c+s?)\\b',
+                      r'\\b(b+i+t+c+h+e+s?|b+a+s+t+a+r+d+s?|a+s+s+h+o+l+e+s?)\\b',
+
+                      # Sexual harassment and explicit content
+                      r'\\b(r+a+p+e+s?|m+o+l+e+s+t+|g+r+o+p+e+s?|a+s+s+a+u+l+t+s?)\\b',
+                      r'\\b(s+e+x+u+a+l+ harass+|unwan+ed+ advance+s?)\\b',
+                      r'\\b(f+u+c+k+|s+h+i+t+|c+u+n+t+|d+i+c+k+|p+u+s+s+y+)\\b',
+
+                      # Direct threats
+                      r'\\b(k+i+l+l+|m+u+r+d+e+r+|d+i+e+|d+e+a+t+h+|h+a+r+m+)\\b.*\\b(y+o+u+|u+r+|f+a+m+i+l+y+)\\b',
+                      r'\\b(g+o+i+n+g+ to+h+u+r+t+|teach+ a+lesson+)\\b',
+                      r'\\b(s+h+o+o+t+|s+t+a+b+|h+i+t+|b+e+a+t+).*(y+o+u+|u+r+)\\b',
+
+                      # Self-harm encouragement
+                      r'\\b(k+i+l+l+.*y+o+u+r+s+e+l+f+|s+l+i+t+.*w+r+i+s+t+s?|c+o+m+m+i+t+.*s+u+i+c+i+d+e+)\\b',
+
+                      # Disguised with spaces or characters
+                      r'f\\s*u\\s*c\\s*k|f\\*u\\*c\\*k|f!u!c!k',
+                      r's\\s*h\\s*i\\s*t|s\\*h\\*i\\*t|s!h!i!t',
+                      r'c\\s*u\\s*n\\s*t|c\\*u\\*n\\*t',
+
+                      # Terrorism/violence
+                      r'\\b(b+o+m+b+|t+e+r+r+o+r+|a+t+t+a+c+k+|v+i+o+l+e+n+c+e+)\\b',
+                      r'\\b(m+a+s+s+.*s+h+o+o+t+|s+h+o+o+t+i+n+g+|k+i+l+l+i+n+g+ s+p+r+e+e)\\b',
+
+                      # Severe insults
+                      r'\\b(y+o+u+r+.*m+o+m+|y+o+u+r+.*d+a+d+|y+o+u+r+.*f+a+m+i+l+y+)\\b',
+                      r'\\b(g+o+.*d+i+e+|k+i+l+l+.*y+o+u+r+s+e+l+f+)\\b',
+                  ]
+
+                  # Compile patterns for better performance
+                  self.compiled_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in self.toxic_patterns]
+
+                  # Subtle toxicity indicators
+                  self.sarcastic_patterns = [
+                      r"\\b(real|such a|quite the|what a|some)\\s+\\w+\\s+(genius|expert|master|professional)\\b",
+                      r"\\bmust be nice to\\b",
+                      r"\\bbless your (heart|soul)\\b",
+                      r"\\bclearly\b.*\\bexpert\\b",
+                      r"\\bit must be\\b",
+                  ]
+
+                  self.passive_aggressive_patterns = [
+                      r"\\b(perhaps|maybe|just saying|no offense but)\\b",
+                      r"\\bwith all due respect\\b",
+                      r"\\bnot to be rude but\\b",
+                      r"\\bI'm not being mean but\\b",
+                      r"\\byou realize.*right\\b",
+                  ]
+
+                  # Contextual exceptions (academic/medical contexts)
+                  self.context_exceptions = {
+                      'medical': [
+                          r'\\b(patient|medical|clinical|anatomy|examination|treatment)\\b',
+                          r'\\b(sexual organ|breast|genital|reproductive)\\b',
+                      ],
+                      'academic': [
+                          r'\\b(study|research|analysis|paper|journal)\\b',
+                          r'\\b(gender identity|sexual orientation|racial dynamics)\\b',
+                      ],
+                      'news': [
+                          r'\\b(report|according to|police said|officials|sources)\\b',
+                          r'\\b(threat was called|incident occurred|authorities report)\\b',
+                      ],
+                  }
+
+                  # Compile context patterns
+                  self.context_patterns = {
+                      context: [re.compile(pattern, re.IGNORECASE) for pattern in patterns]
+                      for context, patterns in self.context_exceptions.items()
+                  }
+
+              def _normalize_leetspeak(self, text: str) -> str:
+                  """Convert leetspeak to normal text for detection"""
+                  normalized = text.lower()
+                  for leet_char, normal_char in self.leet_map.items():
+                      normalized = normalized.replace(leet_char, normal_char)
+                  return normalized
+
+              def _detect_pattern_toxicity(self, text: str) -> dict:
+                  """Detect toxicity using regex patterns"""
+                  findings = {
+                      'slurs': [],
+                      'sexual_explicit': [],
+                      'threats': [],
+                      'severe_profanity': [],
+                      'self_harm': [],
+                      'disguised_toxicity': [],
+                      'sarcastic_insult': [],
+                      'passive_aggressive': []
+                  }
+
+                  normalized_text = self._normalize_leetspeak(text)
+
+                  # Check main toxicity patterns
+                  for pattern in self.compiled_patterns:
+                      matches = pattern.finditer(normalized_text)
+                      for match in matches:
+                          matched_text = text[match.start():match.end()]
+                          confidence = 0.95  # High confidence for direct pattern matches
+
+                          # Categorize the toxicity
+                          pattern_str = pattern.pattern
+                          if any(word in pattern_str for word in ['niger', 'fagot', 'kike']):
+                              findings['slurs'].append({
+                                  'text': matched_text,
+                                  'confidence': confidence,
+                                  'span': [match.start(), match.end()]
+                              })
+                          elif any(word in pattern_str for word in ['rape', 'molest', 'grop']):
+                              findings['sexual_explicit'].append({
+                                  'text': matched_text,
+                                  'confidence': confidence,
+                                  'span': [match.start(), match.end()]
+                              })
+                          elif any(word in pattern_str for word in ['kill', 'murder', 'harm', 'die']):
+                              findings['threats'].append({
+                                  'text': matched_text,
+                                  'confidence': confidence,
+                                  'span': [match.start(), match.end()]
+                              })
+                          elif any(word in pattern_str for word in ['fuck', 'shit', 'cunt']):
+                              findings['severe_profanity'].append({
+                                  'text': matched_text,
+                                  'confidence': confidence,
+                                  'span': [match.start(), match.end()]
+                              })
+                          elif 'kill' in pattern_str and 'self' in normalized_text:
+                              findings['self_harm'].append({
+                                  'text': matched_text,
+                                  'confidence': confidence,
+                                  'span': [match.start(), match.end()]
+                              })
+                          else:
+                              findings['disguised_toxicity'].append({
+                                  'text': matched_text,
+                                  'confidence': confidence,
+                                  'span': [match.start(), match.end()]
+                              })
+
+                  # Check subtle toxicity
+                  for pattern_text in self.sarcastic_patterns:
+                      pattern = re.compile(pattern_text, re.IGNORECASE)
+                      match = pattern.search(text)
+                      if match:
+                          findings['sarcastic_insult'].append({
+                              'text': text[match.start():match.end()],
+                              'confidence': 0.75,
+                              'span': [match.start(), match.end()]
+                          })
+
+                  for pattern_text in self.passive_aggressive_patterns:
+                      pattern = re.compile(pattern_text, re.IGNORECASE)
+                      match = pattern.search(text)
+                      if match:
+                          findings['passive_aggressive'].append({
+                              'text': text[match.start():match.end()],
+                              'confidence': 0.65,
+                              'span': [match.start(), match.end()]
+                          })
+
+                  return findings
+
+              def _check_context_exceptions(self, text: str) -> str:
+                  """Check if text falls under context exceptions"""
+                  for context, patterns in self.context_patterns.items():
+                      for pattern in patterns:
+                          if pattern.search(text):
+                              return context
+                  return None
+
+              def analyze(self, text: str) -> dict:
+                  """Analyze text for toxicity"""
+                  if not text or not isinstance(text, str):
+                      return {
+                          'toxicity_score': 0.0,
+                          'violated': False,
+                          'categories': {},
+                          'findings': {},
+                          'context': None
+                      }
+
+                  # Check context exceptions
+                  context = self._check_context_exceptions(text)
+                  context_multiplier = 0.3 if context in ['medical', 'academic'] else 1.0
+
+                  # Detect toxicity patterns
+                  findings = self._detect_pattern_toxicity(text)
+
+                  # Calculate category scores
+                  categories = {
+                      'hate_speech': len(findings['slurs']) * 0.95,
+                      'sexual_explicit': len(findings['sexual_explicit']) * 0.9,
+                      'threat': len(findings['threats']) * 0.95,
+                      'severe_profanity': len(findings['severe_profanity']) * 0.8,
+                      'self_harm': len(findings['self_harm']) * 0.9,
+                      'disguised_toxicity': len(findings['disguised_toxicity']) * 0.7,
+                      'sarcastic_insult': len(findings['sarcastic_insult']) * 0.5,
+                      'passive_aggressive': len(findings['passive_aggressive']) * 0.4,
+                  }
+
+                  # Apply context multiplier
+                  categories = {k: v * context_multiplier for k, v in categories.items()}
+
+                  # Calculate overall toxicity score
+                  overall_toxicity = min(max(categories.values(), default=0.0), 1.0)
+
+                  # Determine violation (threshold: 0.6 for pattern-based detection)
+                  is_violation = overall_toxicity > 0.6
+
+                  return {
+                      'toxicity_score': round(overall_toxicity, 3),
+                      'violated': is_violation,
+                      'categories': {k: round(v, 3) for k, v in categories.items()},
+                      'findings': {k: v for k, v in findings.items() if v},
+                      'context': context,
+                      'threshold': 0.6
+                  }
+
+          # Initialize the model
+          toxicity_model = LightweightToxicityModel()
+
+          def verify_api_key(request):
+              """Verify API key from request headers"""
+              api_key = request.headers.get('X-API-Key')
+              return api_key in API_KEYS
+
+          @app.route('/health')
+          def health():
+              return jsonify({
+                  'ok': True,
+                  'service': 'Lightweight Toxicity Detection Service',
+                  'status': 'running',
+                  'model_type': 'pattern_based',
+                  'detection_types': ['hate_speech', 'sexual_explicit', 'threat', 'severe_profanity', 'self_harm'],
+                  'timestamp': datetime.now().isoformat()
+              })
+
+          @app.route('/toxicity/detect', methods=['POST'])
+          @app.route('/detect', methods=['POST'])
+          def detect_toxicity():
+              if not verify_api_key(request):
+                  return jsonify({'error': 'Invalid API key'}), 401
+
+              try:
+                  data = request.get_json()
+                  if not data or 'text' not in data:
+                      return jsonify({'error': 'Missing text parameter'}), 400
+
+                  text = data['text']
+                  if not isinstance(text, str):
+                      return jsonify({'error': 'Text must be a string'}), 400
+
+                  # Analyze text for toxicity
+                  result = toxicity_model.analyze(text)
+
+                  # Format response
+                  response = {
+                      'text': text,
+                      'toxicity_score': result['toxicity_score'],
+                      'violated': result['violated'],
+                      'categories': result['categories'],
+                      'threshold': result['threshold'],
+                      'context': result['context'],
+                      'findings_count': sum(len(v) for v in result['findings'].values()),
+                      'timestamp': datetime.now().isoformat(),
+                      'model_type': 'lightweight_pattern_based'
+                  }
+
+                  # Include findings if requested
+                  if data.get('include_findings', False):
+                      response['findings'] = result['findings']
+
+                  return jsonify(response)
+
+              except Exception as e:
+                  return jsonify({'error': f'Processing error: {str(e)}'}), 500
+
+          if __name__ == '__main__':
+              print("🚀 Starting Lightweight Toxicity Detection Service...")
+              print("✅ Pattern-based detection ready")
+              print("📊 Categories: Hate Speech, Sexual Explicit, Threat, Profanity, Self-Harm")
+              app.run(host='0.0.0.0', port=8013, debug=False)
+          PYEOF
+
+          cd /tmp
+          python toxicity_service.py
+        ports:
+        - containerPort: 8013
+        env:
+        - name: API_KEY
+          value: "enhancedtoxicity123"
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8013
+          initialDelaySeconds: 15
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8013
+          initialDelaySeconds: 10
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: toxicity-service-lightweight
+  namespace: z-grid
+spec:
+  selector:
+    app: toxicity-service-lightweight
+  ports:
+  - port: 8013
+    targetPort: 8013
+  type: LoadBalancer

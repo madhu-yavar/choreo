@@ -1,0 +1,32 @@
+# Enhanced Toxicity Service Requirements
+# Core FastAPI and web framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+
+# ML and toxicity detection (optional - graceful fallback)
+detoxify==0.5.0
+
+# Enhanced profanity and pattern detection
+better-profanity==0.7.0
+
+# Data validation and serialization
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# HTTP client and networking
+httpx==0.25.2
+requests==2.31.0
+
+# Environment and configuration
+python-dotenv==1.0.0
+
+# Text processing and regex
+regex==2023.10.3
+
+# Development and testing (optional)
+pytest==7.4.3
+pytest-asyncio==0.21.1
+
+# Logging and monitoring
+structlog==23.2.0

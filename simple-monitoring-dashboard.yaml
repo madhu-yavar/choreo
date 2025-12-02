@@ -1,0 +1,159 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: simple-monitoring-dashboard
+  namespace: z-grid
+  labels:
+    app: simple-monitoring-dashboard
+    component: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: simple-monitoring-dashboard
+  template:
+    metadata:
+      labels:
+        app: simple-monitoring-dashboard
+        component: monitoring
+    spec:
+      containers:
+      - name: dashboard
+        image: python:3.11-slim
+        ports:
+        - containerPort: 5000
+        env:
+        - name: FLASK_APP
+          value: "app.py"
+        - name: FLASK_ENV
+          value: "production"
+        command: ["sh", "-c"]
+        args:
+        - |
+          pip install flask requests psutil &&
+          cat > /app/app.py << 'EOF'
+import os
+from flask import Flask, jsonify, request
+from kubernetes import client, config
+import psutil
+import time
+from datetime import datetime
+
+app = Flask(__name__)
+
+# Initialize Kubernetes client
+try:
+    config.load_incluster_config()
+    v1 = client.CoreV1Api()
+    K8S_AVAILABLE = True
+except:
+    K8S_AVAILABLE = False
+    print("Kubernetes not available, using mock data")
+
+NAMESPACE = 'z-grid'
+
+def get_service_status():
+    """Get service status for all services in z-grid namespace"""
+    if not K8S_AVAILABLE:
+        return {"status": "mock", "services": ["gateway-v2-real", "pii-service-ml", "policy-service-real-llamaguard"]}
+
+    try:
+        pods = v1.list_namespaced_pod(NAMESPACE)
+        services = {}
+
+        for pod in pods.items:
+            pod_name = pod.metadata.name
+            phase = pod.status.phase
+            services[pod_name] = {
+                "status": phase,
+                "ready": pod.status.container_statuses[0].ready if pod.status.container_statuses else False if pod.status.container_statuses else True
+            }
+
+        return {"status": "ok", "services": services}
+    except Exception as e:
+        return {"status": "error", "error": str(e), "services": {}}
+
+def get_system_metrics():
+    """Get system metrics"""
+    return {
+        "cpu_percent": psutil.cpu_percent(),
+        "memory_percent": psutil.virtual_memory().percent,
+        "disk_percent": psutil.disk_usage('/').percent,
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.route('/')
+def index():
+    return jsonify({
+        "service": "Z-Grid Monitoring Dashboard",
+        "status": "running",
+        "timestamp": datetime.now().isoformat(),
+        "kubernetes_available": K8S_AVAILABLE
+    })
+
+@app.route('/health')
+def health():
+    return jsonify({
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat()
+    })
+
+@app.route('/api/services')
+def api_services():
+    return jsonify(get_service_status())
+
+@app.route('/api/metrics')
+def api_metrics():
+    return jsonify(get_system_metrics())
+
+@app.route('/api/dashboard')
+def api_dashboard():
+    services = get_service_status()
+    metrics = get_system_metrics()
+
+    return jsonify({
+        "services": services,
+        "system": metrics,
+        "timestamp": datetime.now().isoformat()
+    })
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=False)
+EOF
+          && python app.py
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "300m"
+            memory: "256Mi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: simple-monitoring-dashboard
+  namespace: z-grid
+  labels:
+    app: simple-monitoring-dashboard
+    component: monitoring
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 5000
+    protocol: TCP
+  selector:
+    app: simple-monitoring-dashboard

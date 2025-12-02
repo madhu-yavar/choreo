@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: load-test-logs-pvc
+  namespace: z-grid
+  labels:
+    app: gateway-v2-load-test
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: default
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: load-test-reports-pvc
+  namespace: z-grid
+  labels:
+    app: gateway-v2-load-test
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: default

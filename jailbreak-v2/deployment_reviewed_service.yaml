@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: jailbreak-distilbert-trained
+  namespace: z-grid
+  labels:
+    app: jailbreak-distilbert-trained
+spec:
+  type: LoadBalancer
+  ports:
+  - name: http
+    port: 8002
+    targetPort: 8002
+    protocol: TCP
+  selector:
+    app: jailbreak-distilbert-trained

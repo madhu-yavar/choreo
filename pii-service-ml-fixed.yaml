@@ -1,0 +1,161 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pii-service-ml-fixed
+  namespace: z-grid
+  labels:
+    app: pii-service-ml-fixed
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pii-service-ml-fixed
+  template:
+    metadata:
+      labels:
+        app: pii-service-ml-fixed
+    spec:
+      containers:
+      - name: pii-service-ml-fixed
+        image: python:3.11-slim
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          echo "Installing ML PII Service dependencies..."
+
+          # Install core dependencies
+          pip install fastapi uvicorn
+
+          # Install Presidio (ML-powered PII detection)
+          pip install presidio-analyzer presidio-anonymizer
+
+          # Install Spacy models for NLP
+          pip install spacy
+          python -m spacy download en_core_web_sm
+
+          echo "✅ ML dependencies installed successfully"
+          echo "🚀 Starting ML-Powered PII Service..."
+
+          # Create a simple working Presidio service
+          cat > /tmp/presidio_service.py << 'PYEOF'
+          from fastapi import FastAPI, HTTPException, Security
+          from fastapi.security import HTTPBearer
+          from pydantic import BaseModel
+          import uvicorn
+          from presidio_analyzer import AnalyzerEngine
+          from presidio_anonymizer import AnonymizerEngine
+          from datetime import datetime
+          from typing import List, Optional
+
+          app = FastAPI(title="ML PII Service", version="1.0.0")
+          security = HTTPBearer(auto_error=False)
+          API_KEY = "enhancedpii123"
+
+          # Initialize Presidio engines
+          analyzer = AnalyzerEngine()
+          anonymizer = AnonymizerEngine()
+
+          class PIIRequest(BaseModel):
+              text: str
+
+          class PIIResponse(BaseModel):
+              has_pii: bool
+              pii_count: int
+              entities: List[dict]
+              risk_level: str
+              confidence: float
+
+          def verify_api_key(credentials):
+              return credentials and credentials.credentials == API_KEY
+
+          @app.get("/health")
+          async def health():
+              return {
+                  "status": "healthy",
+                  "engine": "Microsoft Presidio + Spacy",
+                  "timestamp": datetime.now().isoformat()
+              }
+
+          @app.post("/pii/detect")
+          async def detect_pii(request: PIIRequest, credentials=Security(verify_api_key)):
+              if not verify_api_key(credentials):
+                  raise HTTPException(status_code=401, detail="Invalid API key")
+
+              try:
+                  # Analyze text with Presidio ML engine
+                  results = analyzer.analyze(text=request.text, language="en")
+
+                  # Convert to response format
+                  entities = []
+                  for result in results:
+                      entities.append({
+                          "type": result.entity_type,
+                          "value": request.text[result.start:result.end],
+                          "confidence": result.score,
+                          "start": result.start,
+                          "end": result.end
+                      })
+
+                  # Calculate risk level
+                  high_risk_types = ["CREDIT_CARD", "US_SSN", "BANK_ACCOUNT", "IBAN_CODE"]
+                  has_high_risk = any(e["type"] in high_risk_types for e in entities)
+                  risk_level = "HIGH" if has_high_risk else "MEDIUM" if entities else "LOW"
+
+                  avg_confidence = sum(e["confidence"] for e in entities) / len(entities) if entities else 0.0
+
+                  return PIIResponse(
+                      has_pii=len(entities) > 0,
+                      pii_count=len(entities),
+                      entities=entities,
+                      risk_level=risk_level,
+                      confidence=round(avg_confidence, 3)
+                  )
+
+              except Exception as e:
+                  raise HTTPException(status_code=500, detail=str(e))
+
+          if __name__ == "__main__":
+              print("🚀 ML-Powered PII Service starting on port 8000...")
+              uvicorn.run(app, host="0.0.0.0", port=8000)
+          PYEOF
+
+          python /tmp/presidio_service.py
+        ports:
+        - containerPort: 8000
+        env:
+        - name: API_KEY
+          value: "enhancedpii123"
+        resources:
+          requests:
+            cpu: "200m"
+            memory: "512Mi"
+          limits:
+            cpu: "1000m"
+            memory: "1Gi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pii-service-ml-fixed
+  namespace: z-grid
+spec:
+  selector:
+    app: pii-service-ml-fixed
+  ports:
+  - port: 8000
+    targetPort: 8000
+  type: LoadBalancer

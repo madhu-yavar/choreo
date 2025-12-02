@@ -1,0 +1,202 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: load-test-sidecar
+  namespace: z-grid
+  labels:
+    app: load-test-sidecar
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: load-test-sidecar
+  template:
+    metadata:
+      labels:
+        app: load-test-sidecar
+    spec:
+      containers:
+      - name: load-test-sidecar
+        image: python:3.11-slim
+        ports:
+        - containerPort: 5001
+        command: ["/bin/bash"]
+        args:
+          - -c
+          - |
+            pip install flask kubernetes aiohttp
+
+            cat > load_test_sidecar.py << 'EOF'
+            from flask import Flask, jsonify, request
+            import json
+            import time
+            import subprocess
+            import threading
+            from kubernetes import client, config
+
+            app = Flask(__name__)
+
+            # Try to load in-cluster config, fallback to local
+            try:
+                config.load_incluster_config()
+            except:
+                config.load_kube_config()
+
+            v1 = client.CoreV1Api()
+            namespace = "z-grid"
+            job_name = "gateway-v2-load-test-48hr-fixed"
+
+            # Load test metrics storage
+            load_test_metrics = {
+                "status": "initializing",
+                "requests_sent": 0,
+                "total_requests": 48000,
+                "progress_percentage": 0.0,
+                "success_rate": 0.0,
+                "avg_response_time": 0.0,
+                "start_time": time.time(),
+                "services_tested": [
+                    "DeBERTa Bias Detection",
+                    "Toxicity Detection",
+                    "PII Detection",
+                    "Secrets Detection",
+                    "Jailbreak Detection",
+                    "Format Validation",
+                    "Gibberish Detection"
+                ]
+            }
+
+            def update_load_test_metrics():
+                """Background thread to update load test metrics"""
+                while True:
+                    try:
+                        # Get the load test pod
+                        pods = v1.list_namespaced_pod(namespace, label_selector=f"job-name={job_name}")
+                        if pods.items:
+                            pod = pods.items[0]
+
+                            # Get pod logs
+                            try:
+                                logs = v1.read_namespaced_pod_log(name=pod.metadata.name, namespace=namespace, tail_lines=200)
+                                parse_load_test_logs(logs)
+                            except Exception as e:
+                                print(f"Error getting logs: {e}")
+
+                            # Get pod resource usage
+                            try:
+                                metrics_cmd = ["kubectl", "top", "pod", pod.metadata.name, "-n", namespace]
+                                metrics_output = subprocess.check_output(metrics_cmd, stderr=subprocess.DEVNULL).decode()
+                                load_test_metrics["resource_usage"] = metrics_output.strip()
+                            except:
+                                load_test_metrics["resource_usage"] = "Not available"
+
+                            # Update pod status
+                            load_test_metrics["pod_status"] = pod.status.phase
+                            load_test_metrics["pod_name"] = pod.metadata.name
+
+                    except Exception as e:
+                        print(f"Error updating metrics: {e}")
+
+                    time.sleep(30)  # Update every 30 seconds
+
+            def parse_load_test_logs(logs):
+                """Parse load test logs to extract metrics"""
+                if not logs:
+                    return
+
+                lines = logs.split('\n')
+                for line in lines:
+                    if "🚀 STARTING 48-HOUR GATEWAY V2 LOAD TEST" in line:
+                        load_test_metrics["status"] = "running"
+                        load_test_metrics["start_time"] = time.time()
+
+                    elif "📈" in line and "/" in line:
+                        # Parse progress line like: 📈 100/48,000 (0.2%) | Success: 98.5% | Avg Time: 0.234s
+                        parts = line.split('|')
+                        if len(parts) >= 3:
+                            try:
+                                progress_part = parts[0]
+                                if "(" in progress_part:
+                                    load_test_metrics["progress_percentage"] = float(progress_part.split("(")[1].split("%")[0])
+
+                                success_part = parts[1]
+                                if "Success:" in success_part:
+                                    load_test_metrics["success_rate"] = float(success_part.split("Success:")[1].split("%")[0].strip())
+
+                                time_part = parts[2]
+                                if "Avg Time:" in time_part:
+                                    load_test_metrics["avg_response_time"] = float(time_part.split("Avg Time:")[1].split("s")[0].strip())
+
+                                # Extract request count
+                                req_part = progress_part.split("📈")[1].strip()
+                                if "/" in req_part:
+                                    load_test_metrics["requests_sent"] = int(req_part.split("/")[0].replace(",", ""))
+                            except:
+                                pass
+
+                    elif "🏁 LOAD TEST COMPLETED" in line:
+                        load_test_metrics["status"] = "completed"
+
+            @app.route('/api/load-test')
+            def load_test_api():
+                """Load test metrics API endpoint"""
+                return jsonify({
+                    **load_test_metrics,
+                    "timestamp": time.time(),
+                    "elapsed_time_hours": (time.time() - load_test_metrics["start_time"]) / 3600
+                })
+
+            @app.route('/api/load-test/inject')
+            def inject_to_dashboard():
+                """Inject load test data into existing dashboard format"""
+                # This endpoint can be called by your existing dashboard
+                dashboard_data = {
+                    "load_test": {
+                        "active": load_test_metrics["status"] == "running",
+                        "progress": load_test_metrics["progress_percentage"],
+                        "requests_sent": load_test_metrics["requests_sent"],
+                        "success_rate": load_test_metrics["success_rate"],
+                        "avg_response_time": load_test_metrics["avg_response_time"],
+                        "services_count": len(load_test_metrics["services_tested"])
+                    },
+                    "resource_usage": load_test_metrics.get("resource_usage", ""),
+                    "timestamp": time.time()
+                }
+                return jsonify(dashboard_data)
+
+            @app.route('/api/health')
+            def health():
+                return jsonify({"status": "healthy", "service": "load-test-sidecar"})
+
+            # Start background thread
+            threading.Thread(target=update_load_test_metrics, daemon=True).start()
+
+            if __name__ == '__main__':
+                app.run(host='0.0.0.0', port=5001, debug=False)
+            EOF
+
+            python load_test_sidecar.py
+
+        resources:
+          requests:
+            cpu: 25m
+            memory: 64Mi
+          limits:
+            cpu: 50m
+            memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: load-test-sidecar-service
+  namespace: z-grid
+  labels:
+    app: load-test-sidecar
+spec:
+  type: ClusterIP
+  ports:
+  - port: 5001
+    targetPort: 5001
+    protocol: TCP
+  selector:
+    app: load-test-sidecar

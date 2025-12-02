@@ -1,0 +1,119 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zee-react-frontend
+  namespace: zgrid
+  labels:
+    app: zee-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zee-frontend
+  template:
+    metadata:
+      labels:
+        app: zee-frontend
+    spec:
+      containers:
+      - name: frontend
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - name: react-app
+          mountPath: /usr/share/nginx/html
+        - name: nginx-config
+          mountPath: /etc/nginx/conf.d/default.conf
+          subPath: default.conf
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: react-app
+        configMap:
+          name: react-app-config
+      - name: nginx-config
+        configMap:
+          name: nginx-config
+      nodeSelector:
+        kubernetes.io/os: linux
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+  namespace: zgrid
+data:
+  default.conf: |
+    server {
+        listen 80;
+        server_name localhost;
+        root /usr/share/nginx/html;
+        index index.html;
+
+        # Enable gzip compression
+        gzip on;
+        gzip_vary on;
+        gzip_min_length 1024;
+        gzip_types text/plain text/css text/xml text/javascript application/javascript application/xml+rss application/json;
+
+        # Security headers
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        add_header X-Content-Type-Options "nosniff" always;
+
+        # Handle React Router
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+
+        # Cache static assets
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+            try_files $uri =404;
+        }
+
+        # Health check
+        location /health {
+            access_log off;
+            return 200 "healthy\n";
+            add_header Content-Type text/plain;
+        }
+    }
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zee-frontend-service
+  namespace: zgrid
+  labels:
+    app: zee-frontend
+spec:
+  selector:
+    app: zee-frontend
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 80
+    protocol: TCP
+  type: LoadBalancer

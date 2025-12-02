@@ -1,0 +1,26 @@
+# Combined requirements for running PII and Toxicity services directly
+# This includes all dependencies from both services
+
+fastapi==0.115.2
+uvicorn[standard]==0.30.6
+pydantic==1.10.15
+python-dotenv==1.0.1
+
+# Presidio (Analyzer+Anonymizer) + SpaCy NLP engine
+presidio-analyzer==2.2.355
+presidio-anonymizer==2.2.355
+spacy==3.7.5
+phonenumbers==8.13.45
+
+# GLiNER zero-shot NER (local HF model)
+gliner==0.2.10
+torch>=2.1.0
+
+# Detoxify and related
+torch>=2.1.0
+transformers>=4.30.0
+detoxify>=0.5.2
+
+# NLTK for sentence splitting
+nltk==3.8.1
+better-profanity==0.7.0

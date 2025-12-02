@@ -1,0 +1,155 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zgrid-chatbot-service
+  namespace: zgrid
+  labels:
+    app: zgrid-chatbot-service
+    component: chatbot
+    version: v2-gateway2-enhanced
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: zgrid-chatbot-service
+  template:
+    metadata:
+      labels:
+        app: zgrid-chatbot-service
+        component: chatbot
+        version: v2-gateway2-enhanced
+    spec:
+      containers:
+      - name: chatbot-service
+        image: zgrid/chatbot-service:gateway2-v2  # Will need to build this image
+        ports:
+        - containerPort: 8010
+          name: http
+          protocol: TCP
+        env:
+        - name: GATEWAY_URL_V2
+          value: "http://134.33.132.66:8008"  # Real Gateway 2 endpoint
+        - name: GATEWAY_URL
+          value: "http://134.33.132.66:8008"  # Use Gateway 2 as default
+        - name: ZGRID_API_KEY
+          value: "supersecret123"
+        - name: LOG_LEVEL
+          value: "INFO"
+        resources:
+          requests:
+            memory: "512Mi"  # Increased for Gateway 2 processing
+            cpu: "500m"     # Increased for Gateway 2 processing
+          limits:
+            memory: "1Gi"    # Increased limit
+            cpu: "1000m"    # Increased limit
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8010
+          initialDelaySeconds: 45  # Increased for Gateway 2 startup
+          periodSeconds: 10
+          timeoutSeconds: 10  # Increased timeout
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8010
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5   # Increased timeout
+          failureThreshold: 3
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false  # Needs write access for logs
+          capabilities:
+            drop:
+            - ALL
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        fsGroup: 1000
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zgrid-chatbot-service
+  namespace: zgrid
+  labels:
+    app: zgrid-chatbot-service
+    component: chatbot
+spec:
+  selector:
+    app: zgrid-chatbot-service
+  ports:
+  - name: http
+    port: 8010
+    targetPort: 8010
+    protocol: TCP
+  type: LoadBalancer  # Changed to LoadBalancer for external IP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zgrid-chatbot-service-external
+  namespace: zgrid
+  labels:
+    app: zgrid-chatbot-service
+    component: chatbot
+spec:
+  selector:
+    app: zgrid-chatbot-service
+  ports:
+  - name: http
+    port: 8010
+    targetPort: 8010
+    protocol: TCP
+  type: LoadBalancer
+  # Optional: Add annotations for cloud provider-specific load balancer settings
+  # annotations:
+  #   service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+  #   service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+
+---
+# Optional: HorizontalPodAutoscaler for automatic scaling
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: zgrid-chatbot-service-hpa
+  namespace: zgrid
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: zgrid-chatbot-service
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+
+---
+# ConfigMap for configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chatbot-config
+  namespace: zgrid
+data:
+  gateway_timeout: "60"
+  max_sessions: "1000"
+  max_messages_per_session: "50"
+  log_level: "INFO"

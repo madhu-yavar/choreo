@@ -1,0 +1,54 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: balanced-model-pvc
+  namespace: z-grid
+  labels:
+    app: jailbreak-balanced-model
+spec:
+  accessModes:
+    - ReadOnlyMany
+  resources:
+    requests:
+      storage: 100Mi  # Our model is only ~1.6MB, but we need space for tokenizer downloads
+  storageClassName: standard  # Use appropriate storage class for your cluster
+---
+# Optional: Create a job to copy the model files to the persistent volume
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: copy-balanced-model
+  namespace: z-grid
+spec:
+  template:
+    spec:
+      containers:
+      - name: model-copier
+        image: busybox:1.35
+        command: ['sh', '-c']
+        args:
+        - |
+          echo "📦 Copying balanced model files..."
+
+          # Create model directory structure
+          mkdir -p /model_volume/jailbreak_model_balanced/checkpoint-444
+
+          # Copy model files (these would be pre-uploaded or built into the image)
+          # In production, you would use a proper model registry or build these into the container
+          echo "Config.json:" > /model_volume/jailbreak_model_balanced/checkpoint-444/config.json
+          echo '{"_name_or_path": "distilbert-base-uncased", "architectures": ["DistilBertForSequenceClassification"], "id2label": {"0": "benign", "1": "jailbreak"}, "label2id": {"benign": 0, "jailbreak": 1}, "problem_type": "single_label_classification"}' > /model_volume/jailbreak_model_balanced/checkpoint-444/config.json
+
+          # Note: The model.safetensors file would need to be uploaded separately or built into the image
+          # For production deployment, use a proper model registry like MLflow, S3, or build into container image
+
+          echo "✅ Model copy completed"
+          ls -la /model_volume/
+        volumeMounts:
+        - name: model-volume
+          mountPath: /model_volume
+      volumes:
+      - name: model-volume
+        persistentVolumeClaim:
+          claimName: balanced-model-pvc
+      restartPolicy: Never
+  backoffLimit: 3

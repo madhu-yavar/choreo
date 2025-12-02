@@ -1,0 +1,1956 @@
+{
+  "metadata": {
+    "version": "2.0",
+    "created": "2025-11-24",
+    "description": "Enhanced gibberish detection training dataset",
+    "total_samples": 298,
+    "current_batch": 5,
+    "target_total": 253,
+    "categories": {
+      "good": {
+        "count": 153,
+        "subcategories": {
+          "formal_business": 11,
+          "business_formal": 5,
+          "url": 7,
+          "email": 2,
+          "uuid": 1,
+          "technical_id": 5,
+          "product_code": 1,
+          "version_number": 1,
+          "hex_code": 1,
+          "technical_identifier": 1,
+          "internet_slang": 7,
+          "slang": 6,
+          "leetspeak": 7,
+          "timestamp": 4,
+          "date_format": 1,
+          "date": 1,
+          "query_string": 1,
+          "contextual_valid": 5,
+          "technical_error_code": 1,
+          "technical_session_id": 1,
+          "transaction_reference": 1,
+          "case_identifier": 1,
+          "email_comparison": 1,
+          "url_template": 1,
+          "filename_pattern": 1,
+          "version_build": 1,
+          "api_response": 1,
+          "uuid_format": 1,
+          "hash_format": 1,
+          "base64_content": 1,
+          "mac_address": 1,
+          "price_sku": 1,
+          "phone_extension": 1,
+          "coordinates": 1,
+          "precise_timestamp": 1,
+          "error_reference": 1,
+          "regex_example": 1,
+          "product_code_quantity": 1,
+          "backup_filename": 1,
+          "config_json": 1,
+          "email_subject": 1,
+          "bug_report": 1
+        }
+      },
+      "gibberish": {
+        "count": 98,
+        "subcategories": {
+          "keyboard_mash": 14,
+          "repetitive_pattern": 11,
+          "random_sequence": 8,
+          "repetitive": 6,
+          "random_alphanumeric": 3,
+          "pattern_alphanumeric": 1,
+          "mixed_content_mid_sentence": 3,
+          "mixed_content_suffix": 2,
+          "mixed_content_prefix": 1,
+          "mixed_content_scattered": 4,
+          "mixed_content_technical": 1,
+          "mixed_content_business": 2,
+          "mixed_content_log": 1,
+          "mixed_sql_injection_like": 1,
+          "mixed_command_path": 1
+        }
+      }
+    },
+    "last_updated": "2025-11-25T00:09:09.974856",
+    "duplicates_removed": 2,
+    "phase_1_completed": true,
+    "edge_cases_added": 45,
+    "training_weights": {
+      "mixed_content_mid_sentence": 3.0,
+      "mixed_content_scattered": 3.0,
+      "mixed_content_prefix_suffix": 3.0,
+      "mixed_content_technical": 3.0,
+      "mixed_content_business": 3.0,
+      "contextual_valid": 2.0,
+      "technical_error_code": 2.0,
+      "transaction_reference": 2.0,
+      "case_identifier": 2.0,
+      "business_formal": 1.0,
+      "technical_jargon": 1.0,
+      "internet_slang": 1.0,
+      "leetspeak": 1.0,
+      "gen_z_slang": 1.0,
+      "keyboard_mash": 0.5,
+      "repetitive_pattern": 0.5,
+      "random_sequence": 0.5
+    },
+    "splits": {
+      "train": {
+        "count": 148,
+        "ratio": 0.4966442953020134
+      },
+      "validation": {
+        "count": 32,
+        "ratio": 0.10738255033557047
+      },
+      "test": {
+        "count": 118,
+        "ratio": 0.3959731543624161
+      }
+    }
+  },
+  "training_samples": [
+    {
+      "text": "Please confirm receipt of the attached invoice.",
+      "label": "good",
+      "category": "formal_business",
+      "context": "business"
+    },
+    {
+      "text": "Let's schedule a follow-up meeting for next Tuesday.",
+      "label": "good",
+      "category": "formal_business",
+      "context": "business"
+    },
+    {
+      "text": "Thank you for reaching out regarding this issue.",
+      "label": "good",
+      "category": "formal_business",
+      "context": "business"
+    },
+    {
+      "text": "https://www.google.com/search?q=python+library",
+      "label": "good",
+      "category": "url",
+      "context": "technical"
+    },
+    {
+      "text": "www.amazon.co.uk/products/ref=ts_1",
+      "label": "good",
+      "category": "url",
+      "context": "technical"
+    },
+    {
+      "text": "/api/v1/users/auth/token",
+      "label": "good",
+      "category": "url",
+      "context": "technical"
+    },
+    {
+      "text": "ftp://fileserver.internal.net/logs",
+      "label": "good",
+      "category": "url",
+      "context": "technical"
+    },
+    {
+      "text": "support@example-company.org",
+      "label": "good",
+      "category": "email",
+      "context": "business"
+    },
+    {
+      "text": "550e8400-e29b-41d4-a716-446655440000",
+      "label": "good",
+      "category": "uuid",
+      "context": "technical"
+    },
+    {
+      "text": "SKU-99283-XJ-01-REV2",
+      "label": "good",
+      "category": "product_code",
+      "context": "technical"
+    },
+    {
+      "text": "v2.4.1-alpha.3+build.105",
+      "label": "good",
+      "category": "version_number",
+      "context": "technical"
+    },
+    {
+      "text": "c849a2f3b1",
+      "label": "good",
+      "category": "hex_code",
+      "context": "technical"
+    },
+    {
+      "text": "CSRF_TOKEN_SECRET_KEY",
+      "label": "good",
+      "category": "technical_identifier",
+      "context": "technical"
+    },
+    {
+      "text": "lol that was actually pretty funny",
+      "label": "good",
+      "category": "slang",
+      "context": "informal"
+    },
+    {
+      "text": "brb grabbing some coffee real quick",
+      "label": "good",
+      "category": "slang",
+      "context": "informal"
+    },
+    {
+      "text": "idk what the problem is tbh",
+      "label": "good",
+      "category": "slang",
+      "context": "informal"
+    },
+    {
+      "text": "afaik the server is down right now",
+      "label": "good",
+      "category": "slang",
+      "context": "informal"
+    },
+    {
+      "text": "thx for looking into it",
+      "label": "good",
+      "category": "slang",
+      "context": "informal"
+    },
+    {
+      "text": "h4x0r",
+      "label": "good",
+      "category": "leetspeak",
+      "context": "informal"
+    },
+    {
+      "text": "total pwnage of the database",
+      "label": "good",
+      "category": "leetspeak",
+      "context": "informal"
+    },
+    {
+      "text": "1337 c0d3r skills",
+      "label": "good",
+      "category": "leetspeak",
+      "context": "informal"
+    },
+    {
+      "text": "n00b question here",
+      "label": "good",
+      "category": "leetspeak",
+      "context": "informal"
+    },
+    {
+      "text": "2023-10-25T14:30:00Z",
+      "label": "good",
+      "category": "timestamp",
+      "context": "technical"
+    },
+    {
+      "text": "12/31/2024 11:59 PM",
+      "label": "good",
+      "category": "date",
+      "context": "general"
+    },
+    {
+      "text": "Wed, 24 Nov 2025 16:00:00 GMT",
+      "label": "good",
+      "category": "timestamp",
+      "context": "technical"
+    },
+    {
+      "text": "Could you check the logs?",
+      "label": "good",
+      "category": "formal_business",
+      "context": "business"
+    },
+    {
+      "text": "Please update the ticket status.",
+      "label": "good",
+      "category": "formal_business",
+      "context": "business"
+    },
+    {
+      "text": "System maintenance is scheduled for tonight.",
+      "label": "good",
+      "category": "formal_business",
+      "context": "technical"
+    },
+    {
+      "text": "user_id=99283&action=delete",
+      "label": "good",
+      "category": "query_string",
+      "context": "technical"
+    },
+    {
+      "text": "BTW ttyl",
+      "label": "good",
+      "category": "slang",
+      "context": "informal"
+    },
+    {
+      "text": "asdfghjklqwertyuiopzxcvbnm",
+      "label": "gibberish",
+      "category": "keyboard_mash",
+      "context": "gibberish"
+    },
+    {
+      "text": "lskdjflskjdflkgjh",
+      "label": "gibberish",
+      "category": "keyboard_mash",
+      "context": "gibberish"
+    },
+    {
+      "text": "qweqweqweqwe",
+      "label": "gibberish",
+      "category": "repetitive",
+      "context": "gibberish"
+    },
+    {
+      "text": "zxcvbnm,./",
+      "label": "gibberish",
+      "category": "keyboard_mash",
+      "context": "gibberish"
+    },
+    {
+      "text": "poiuytrewqlkjhgfdsamnbvcxz",
+      "label": "gibberish",
+      "category": "keyboard_mash",
+      "context": "gibberish"
+    },
+    {
+      "text": ";lkj;lkj;lkj",
+      "label": "gibberish",
+      "category": "repetitive",
+      "context": "gibberish"
+    },
+    {
+      "text": "mnbvcxz12345",
+      "label": "gibberish",
+      "category": "keyboard_mash",
+      "context": "gibberish"
+    },
+    {
+      "text": "ghjkl;'",
+      "label": "gibberish",
+      "category": "keyboard_mash",
+      "context": "gibberish"
+    },
+    {
+      "text": "x7z9q2w1p0m5n",
+      "label": "gibberish",
+      "category": "random_alphanumeric",
+      "context": "gibberish"
+    },
+    {
+      "text": "dk39s8a7f6g",
+      "label": "gibberish",
+      "category": "random_alphanumeric",
+      "context": "gibberish"
+    },
+    {
+      "text": "v8b3n2m1k0l",
+      "label": "gibberish",
+      "category": "random_alphanumeric",
+      "context": "gibberish"
+    },
+    {
+      "text": "aaaaaaaaaaaaaaaaaaaaa",
+      "label": "gibberish",
+      "category": "repetitive",
+      "context": "gibberish"
+    },
+    {
+      "text": "ababababababababab",
+      "label": "gibberish",
+      "category": "repetitive",
+      "context": "gibberish"
+    },
+    {
+      "text": "1212121212121212",
+      "label": "gibberish",
+      "category": "repetitive",
+      "context": "gibberish"
+    },
+    {
+      "text": "xyzxyzxyzxyzxyz",
+      "label": "gibberish",
+      "category": "repetitive",
+      "context": "gibberish"
+    },
+    {
+      "text": "jjjjkkkkllll",
+      "label": "gibberish",
+      "category": "repetitive",
+      "context": "gibberish"
+    },
+    {
+      "text": "fghj4567tyu",
+      "label": "gibberish",
+      "category": "keyboard_mash",
+      "context": "gibberish"
+    },
+    {
+      "text": "29384756skdjfh",
+      "label": "gibberish",
+      "category": "random_alphanumeric",
+      "context": "gibberish"
+    },
+    {
+      "text": "a1s2d3f4g5h6",
+      "label": "gibberish",
+      "category": "pattern_alphanumeric",
+      "context": "gibberish"
+    },
+    {
+      "text": "pl09ok87ij65",
+      "label": "gibberish",
+      "category": "pattern_alphanumeric",
+      "context": "gibberish"
+    },
+    {
+      "text": "Hello, how are you today?",
+      "label": "good",
+      "category": "business_formal",
+      "context": "professional"
+    },
+    {
+      "text": "Please review the quarterly report",
+      "label": "good",
+      "category": "business_formal",
+      "context": "professional"
+    },
+    {
+      "text": "Looking forward to our meeting tomorrow",
+      "label": "good",
+      "category": "business_formal",
+      "context": "professional"
+    },
+    {
+      "text": "https://api.example.com/v2/users/12345",
+      "label": "good",
+      "category": "url",
+      "context": "technical"
+    },
+    {
+      "text": "www.company-portal.com/dashboard",
+      "label": "good",
+      "category": "url",
+      "context": "technical"
+    },
+    {
+      "text": "ftp://files.server.com/archive.zip",
+      "label": "good",
+      "category": "url",
+      "context": "technical"
+    },
+    {
+      "text": "SKU-789-XYZ-2023",
+      "label": "good",
+      "category": "technical_id",
+      "context": "technical"
+    },
+    {
+      "text": "v2.1.4-release-candidate",
+      "label": "good",
+      "category": "technical_id",
+      "context": "technical"
+    },
+    {
+      "text": "lol that's hilarious",
+      "label": "good",
+      "category": "internet_slang",
+      "context": "casual"
+    },
+    {
+      "text": "brb need to grab coffee",
+      "label": "good",
+      "category": "internet_slang",
+      "context": "casual"
+    },
+    {
+      "text": "ttyl talk to you later",
+      "label": "good",
+      "category": "internet_slang",
+      "context": "casual"
+    },
+    {
+      "text": "1337 h4x0r skills",
+      "label": "good",
+      "category": "leetspeak",
+      "context": "gaming"
+    },
+    {
+      "text": "pwned the competition",
+      "label": "good",
+      "category": "leetspeak",
+      "context": "gaming"
+    },
+    {
+      "text": "n00b alert",
+      "label": "good",
+      "category": "leetspeak",
+      "context": "gaming"
+    },
+    {
+      "text": "2023-10-15T14:30:00Z",
+      "label": "good",
+      "category": "timestamp",
+      "context": "technical"
+    },
+    {
+      "text": "Q4 2023 earnings report",
+      "label": "good",
+      "category": "date_format",
+      "context": "business"
+    },
+    {
+      "text": "asdfghjklqwertyuiop",
+      "label": "gibberish",
+      "category": "keyboard_mash",
+      "context": "gibberish"
+    },
+    {
+      "text": "zxcvbnmasdfgh",
+      "label": "gibberish",
+      "category": "keyboard_mash",
+      "context": "gibberish"
+    },
+    {
+      "text": "qazwsxedcrfvtgbyhnujm",
+      "label": "gibberish",
+      "category": "keyboard_mash",
+      "context": "gibberish"
+    },
+    {
+      "text": "mjnhbgvfcdxszaq",
+      "label": "gibberish",
+      "category": "keyboard_mash",
+      "context": "gibberish"
+    },
+    {
+      "text": "lkjiuhytgfredswq",
+      "label": "gibberish",
+      "category": "keyboard_mash",
+      "context": "gibberish"
+    },
+    {
+      "text": "xdddddddddddddd",
+      "label": "gibberish",
+      "category": "repetitive_pattern",
+      "context": "gibberish"
+    },
+    {
+      "text": "aaaaaaaabbbbbbbb",
+      "label": "gibberish",
+      "category": "repetitive_pattern",
+      "context": "gibberish"
+    },
+    {
+      "text": "123123123123",
+      "label": "gibberish",
+      "category": "repetitive_pattern",
+      "context": "gibberish"
+    },
+    {
+      "text": "abcabcabcabc",
+      "label": "gibberish",
+      "category": "repetitive_pattern",
+      "context": "gibberish"
+    },
+    {
+      "text": "qwqwqwqwqwqw",
+      "label": "gibberish",
+      "category": "repetitive_pattern",
+      "context": "gibberish"
+    },
+    {
+      "text": "jfkdls;a",
+      "label": "gibberish",
+      "category": "random_sequence",
+      "context": "gibberish"
+    },
+    {
+      "text": "vmcnxlzpwoe",
+      "label": "gibberish",
+      "category": "random_sequence",
+      "context": "gibberish"
+    },
+    {
+      "text": "ghtyurmfbsk",
+      "label": "gibberish",
+      "category": "random_sequence",
+      "context": "gibberish"
+    },
+    {
+      "text": "pqowieurytals",
+      "label": "gibberish",
+      "category": "random_sequence",
+      "context": "gibberish"
+    },
+    {
+      "text": "zmxncbvlaksj",
+      "label": "gibberish",
+      "category": "random_sequence",
+      "context": "gibberish"
+    },
+    {
+      "text": "Please send the documents by EOD",
+      "label": "good",
+      "category": "business_formal",
+      "context": "professional"
+    },
+    {
+      "text": "Let's schedule a follow-up call",
+      "label": "good",
+      "category": "business_formal",
+      "context": "professional"
+    },
+    {
+      "text": "https://docs.google.com/presentation/d/1ABC123",
+      "label": "good",
+      "category": "url",
+      "context": "technical"
+    },
+    {
+      "text": "user@domain.com",
+      "label": "good",
+      "category": "email",
+      "context": "technical"
+    },
+    {
+      "text": "API-KEY-7X9Y2Z-8B3C1D",
+      "label": "good",
+      "category": "technical_id",
+      "context": "technical"
+    },
+    {
+      "text": "omg that's amazing!",
+      "label": "good",
+      "category": "internet_slang",
+      "context": "casual"
+    },
+    {
+      "text": "imo we should proceed",
+      "label": "good",
+      "category": "internet_slang",
+      "context": "casual"
+    },
+    {
+      "text": "w00t we did it!",
+      "label": "good",
+      "category": "leetspeak",
+      "context": "gaming"
+    },
+    {
+      "text": "elite pr0 status",
+      "label": "good",
+      "category": "leetspeak",
+      "context": "gaming"
+    },
+    {
+      "text": "2023-12-25 14:30:00",
+      "label": "good",
+      "category": "timestamp",
+      "context": "technical"
+    },
+    {
+      "text": "sdfghjkllkjhgfds",
+      "label": "gibberish",
+      "category": "keyboard_mash",
+      "context": "gibberish"
+    },
+    {
+      "text": "poiuytrewqmnbvcxz",
+      "label": "gibberish",
+      "category": "keyboard_mash",
+      "context": "gibberish"
+    },
+    {
+      "text": "mmmmmmnnnnnnbbbbb",
+      "label": "gibberish",
+      "category": "repetitive_pattern",
+      "context": "gibberish"
+    },
+    {
+      "text": "121212121212",
+      "label": "gibberish",
+      "category": "repetitive_pattern",
+      "context": "gibberish"
+    },
+    {
+      "text": "xyzxyzxyzxyz",
+      "label": "gibberish",
+      "category": "repetitive_pattern",
+      "context": "gibberish"
+    },
+    {
+      "text": "plokijuhygt",
+      "label": "gibberish",
+      "category": "random_sequence",
+      "context": "gibberish"
+    },
+    {
+      "text": "qwfpgjluyar",
+      "label": "gibberish",
+      "category": "random_sequence",
+      "context": "gibberish"
+    },
+    {
+      "text": "no cap that was actually insane",
+      "label": "good",
+      "category": "gen_z_slang",
+      "context": "social_media"
+    },
+    {
+      "text": "bet see you at 8",
+      "label": "good",
+      "category": "gen_z_slang",
+      "context": "informal"
+    },
+    {
+      "text": "lowkey feeling tired rn ngl",
+      "label": "good",
+      "category": "gen_z_slang",
+      "context": "social_media"
+    },
+    {
+      "text": "caught in 4k",
+      "label": "good",
+      "category": "gen_z_slang",
+      "context": "social_media"
+    },
+    {
+      "text": "absolute unit of a dog",
+      "label": "good",
+      "category": "gen_z_slang",
+      "context": "informal"
+    },
+    {
+      "text": "main character energy",
+      "label": "good",
+      "category": "gen_z_slang",
+      "context": "social_media"
+    },
+    {
+      "text": "finna head out",
+      "label": "good",
+      "category": "gen_z_slang",
+      "context": "informal"
+    },
+    {
+      "text": "yeet that into the trash",
+      "label": "good",
+      "category": "gen_z_slang",
+      "context": "informal"
+    },
+    {
+      "text": "big yikes on that one",
+      "label": "good",
+      "category": "gen_z_slang",
+      "context": "informal"
+    },
+    {
+      "text": "slay queen pop off",
+      "label": "good",
+      "category": "gen_z_slang",
+      "context": "social_media"
+    },
+    {
+      "text": "understood the assignment",
+      "label": "good",
+      "category": "gen_z_slang",
+      "context": "social_media"
+    },
+    {
+      "text": "giving chaotic energy",
+      "label": "good",
+      "category": "gen_z_slang",
+      "context": "social_media"
+    },
+    {
+      "text": "living rent free in my head",
+      "label": "good",
+      "category": "gen_z_slang",
+      "context": "social_media"
+    },
+    {
+      "text": "sheesh that car is clean",
+      "label": "good",
+      "category": "gen_z_slang",
+      "context": "informal"
+    },
+    {
+      "text": "weird flex but ok",
+      "label": "good",
+      "category": "gen_z_slang",
+      "context": "social_media"
+    },
+    {
+      "text": "got that unspeakable rizz",
+      "label": "good",
+      "category": "gen_z_slang",
+      "context": "social_media"
+    },
+    {
+      "text": "simp behavior honestly",
+      "label": "good",
+      "category": "gen_z_slang",
+      "context": "informal"
+    },
+    {
+      "text": "touch grass please",
+      "label": "good",
+      "category": "gen_z_slang",
+      "context": "gaming"
+    },
+    {
+      "text": "sus impostor syndrome",
+      "label": "good",
+      "category": "gen_z_slang",
+      "context": "gaming"
+    },
+    {
+      "text": "periodt",
+      "label": "good",
+      "category": "gen_z_slang",
+      "context": "social_media"
+    },
+    {
+      "text": "its the audacity for me",
+      "label": "good",
+      "category": "gen_z_slang",
+      "context": "social_media"
+    },
+    {
+      "text": "that fit is fire fr fr",
+      "label": "good",
+      "category": "gen_z_slang",
+      "context": "informal"
+    },
+    {
+      "text": "ngl this collab goes hard",
+      "label": "good",
+      "category": "gen_z_slang",
+      "context": "social_media"
+    },
+    {
+      "text": "highkey want pizza",
+      "label": "good",
+      "category": "gen_z_slang",
+      "context": "informal"
+    },
+    {
+      "text": "spill the tea",
+      "label": "good",
+      "category": "gen_z_slang",
+      "context": "social_media"
+    },
+    {
+      "text": "sending me",
+      "label": "good",
+      "category": "gen_z_slang",
+      "context": "social_media"
+    },
+    {
+      "text": "im dead skull emoji",
+      "label": "good",
+      "category": "gen_z_slang",
+      "context": "social_media"
+    },
+    {
+      "text": "ratio + L + bozo",
+      "label": "good",
+      "category": "gen_z_slang",
+      "context": "social_media"
+    },
+    {
+      "text": "vibe check passed",
+      "label": "good",
+      "category": "gen_z_slang",
+      "context": "informal"
+    },
+    {
+      "text": "goated with the sauce",
+      "label": "good",
+      "category": "gen_z_slang",
+      "context": "social_media"
+    },
+    {
+      "text": "hdjskalwow",
+      "label": "gibberish",
+      "category": "keyboard_mash",
+      "context": "gibberish"
+    },
+    {
+      "text": "ncbvncbvncbv",
+      "label": "gibberish",
+      "category": "repetitive",
+      "context": "gibberish"
+    },
+    {
+      "text": "eirowqpznm",
+      "label": "gibberish",
+      "category": "random_alphanumeric",
+      "context": "gibberish"
+    },
+    {
+      "text": ".......,,,,,,",
+      "label": "gibberish",
+      "category": "punctuation_mash",
+      "context": "gibberish"
+    },
+    {
+      "text": "jkfdsljkfdsl",
+      "label": "gibberish",
+      "category": "repetitive",
+      "context": "gibberish"
+    },
+    {
+      "text": "aoeuidhtns",
+      "label": "gibberish",
+      "category": "keyboard_mash",
+      "context": "gibberish"
+    },
+    {
+      "text": "qazwsxedcrfv",
+      "label": "gibberish",
+      "category": "pattern_alphanumeric",
+      "context": "gibberish"
+    },
+    {
+      "text": "mznxbcv",
+      "label": "gibberish",
+      "category": "keyboard_mash",
+      "context": "gibberish"
+    },
+    {
+      "text": "lkajsdflkjasdf",
+      "label": "gibberish",
+      "category": "repetitive",
+      "context": "gibberish"
+    },
+    {
+      "text": "01010101012",
+      "label": "gibberish",
+      "category": "binary_mash",
+      "context": "gibberish"
+    },
+    {
+      "text": "tgyhujikolp",
+      "label": "gibberish",
+      "category": "keyboard_mash",
+      "context": "gibberish"
+    },
+    {
+      "text": "zaq12wsx",
+      "label": "gibberish",
+      "category": "pattern_alphanumeric",
+      "context": "gibberish"
+    },
+    {
+      "text": "bbbbnnnnmmmm",
+      "label": "gibberish",
+      "category": "repetitive",
+      "context": "gibberish"
+    },
+    {
+      "text": "gfdsaewq",
+      "label": "gibberish",
+      "category": "keyboard_mash",
+      "context": "gibberish"
+    },
+    {
+      "text": "uyt765r",
+      "label": "gibberish",
+      "category": "random_alphanumeric",
+      "context": "gibberish"
+    },
+    {
+      "text": "cxzcxzcxz",
+      "label": "gibberish",
+      "category": "repetitive",
+      "context": "gibberish"
+    },
+    {
+      "text": "fajskldf",
+      "label": "gibberish",
+      "category": "keyboard_mash",
+      "context": "gibberish"
+    },
+    {
+      "text": "4r5t6y7u",
+      "label": "gibberish",
+      "category": "pattern_alphanumeric",
+      "context": "gibberish"
+    },
+    {
+      "text": "nvmcxlks",
+      "label": "gibberish",
+      "category": "keyboard_mash",
+      "context": "gibberish"
+    },
+    {
+      "text": "Hello, thank you for contacting Acme Corp. How can I assist you today?",
+      "label": "good",
+      "category": "business_sentence",
+      "context": "business"
+    },
+    {
+      "text": "Please refer to the API documentation at https://api.example.com/v2/docs for endpoints and examples.",
+      "label": "good",
+      "category": "url",
+      "context": "technical"
+    },
+    {
+      "text": "Order ID: SK-84B7-92X (expected delivery: 2025-12-01)",
+      "label": "good",
+      "category": "sku",
+      "context": "technical"
+    },
+    {
+      "text": "User UUID: 3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "label": "good",
+      "category": "uuid",
+      "context": "technical"
+    },
+    {
+      "text": "I'll BRB — grabbing coffee, back in 10.",
+      "label": "good",
+      "category": "internet_slang",
+      "context": "informal"
+    },
+    {
+      "text": "System version 1.14.0-rc3 deployed to staging.",
+      "label": "good",
+      "category": "version",
+      "context": "technical"
+    },
+    {
+      "text": "Timestamp: 2024-07-15T14:23:05Z",
+      "label": "good",
+      "category": "timestamp",
+      "context": "technical"
+    },
+    {
+      "text": "Contact: support@company-example.org for further assistance.",
+      "label": "good",
+      "category": "email",
+      "context": "business"
+    },
+    {
+      "text": "Password reset link: https://example.com/reset?token=AbC123-XyZ",
+      "label": "good",
+      "category": "url",
+      "context": "technical"
+    },
+    {
+      "text": "The build artifact hash is: a3b1c9f7e4d2f0a9b8c7d6e5f4a3b2c1",
+      "label": "good",
+      "category": "technical_id",
+      "context": "system"
+    },
+    {
+      "text": "LOL that was unexpected 😂",
+      "label": "good",
+      "category": "internet_slang",
+      "context": "informal"
+    },
+    {
+      "text": "Leet example: pwned -> pwn3d; 1337 speak: h4x0r",
+      "label": "good",
+      "category": "leetspeak",
+      "context": "informal"
+    },
+    {
+      "text": "Meeting rescheduled to Mon, 2025-01-06 at 09:30 AM IST.",
+      "label": "good",
+      "category": "date_time",
+      "context": "business"
+    },
+    {
+      "text": "Device serial: SN-0092-77-ABCD",
+      "label": "good",
+      "category": "technical_id",
+      "context": "technical"
+    },
+    {
+      "text": "Please cc: jane.doe@finance.example on the quarterly report.",
+      "label": "good",
+      "category": "email",
+      "context": "business"
+    },
+    {
+      "text": "API call example: POST https://example.com/api/v1/users {\"name\":\"Alex\"}",
+      "label": "good",
+      "category": "url",
+      "context": "technical"
+    },
+    {
+      "text": "Ref: INV-2025-00047 (paid)",
+      "label": "good",
+      "category": "invoice",
+      "context": "business"
+    },
+    {
+      "text": "Client token: tok_live_51HfEw92bZ4q3",
+      "label": "good",
+      "category": "technical_id",
+      "context": "system"
+    },
+    {
+      "text": "ETA 00:15:32 (hh:mm:ss)",
+      "label": "good",
+      "category": "timestamp",
+      "context": "technical"
+    },
+    {
+      "text": "Reminder: submit Q3 budget spreadsheet by 2025-04-30.",
+      "label": "good",
+      "category": "business_sentence",
+      "context": "business"
+    },
+    {
+      "text": "Short link: http://bit.ly/3xYzAbC",
+      "label": "good",
+      "category": "url",
+      "context": "technical"
+    },
+    {
+      "text": "Version tag: release-2025_11_01-build-257",
+      "label": "good",
+      "category": "version",
+      "context": "technical"
+    },
+    {
+      "text": "SKU: PROD-XL-2025-RED-001",
+      "label": "good",
+      "category": "sku",
+      "context": "technical"
+    },
+    {
+      "text": "FYI the server 10.0.3.21 is under maintenance until 02:00 UTC.",
+      "label": "good",
+      "category": "ip_address",
+      "context": "technical"
+    },
+    {
+      "text": "User said: \"ttyl, got to run\" in the chat log.",
+      "label": "good",
+      "category": "internet_slang",
+      "context": "informal"
+    },
+    {
+      "text": "Checksum (SHA256): e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "label": "good",
+      "category": "technical_id",
+      "context": "system"
+    },
+    {
+      "text": "Backup completed at 2025-08-20 03:00:00+05:30",
+      "label": "good",
+      "category": "timestamp",
+      "context": "technical"
+    },
+    {
+      "text": "Casual: naw, I can't make it tonight, maybe next week?",
+      "label": "good",
+      "category": "informal_sentence",
+      "context": "informal"
+    },
+    {
+      "text": "Endpoint: wss://realtime.example.net/socket/stream",
+      "label": "good",
+      "category": "url",
+      "context": "technical"
+    },
+    {
+      "text": "Keyboard mash but meaningful: asdf -> commonly typed sequence in forms",
+      "label": "good",
+      "category": "keyboard_mash_example",
+      "context": "technical"
+    },
+    {
+      "text": "asdfghjklqwertyuiopzxcvbnm12345",
+      "label": "gibberish",
+      "category": "keyboard_mash",
+      "context": "gibberish"
+    },
+    {
+      "text": "qwertyuiop[]\\asdfghjkl;'zxcvbnm,./",
+      "label": "gibberish",
+      "category": "keyboard_mash",
+      "context": "gibberish"
+    },
+    {
+      "text": "lkjhgfdsa987654321mnbvcxz",
+      "label": "gibberish",
+      "category": "keyboard_mash",
+      "context": "gibberish"
+    },
+    {
+      "text": "z9x8c7v6b5n4m3l2k1j0h9g8",
+      "label": "gibberish",
+      "category": "random_chars",
+      "context": "gibberish"
+    },
+    {
+      "text": "!!!!!@@@@@$$$$$%%%%%^^^^^&&&&&",
+      "label": "gibberish",
+      "category": "repetitive",
+      "context": "gibberish"
+    },
+    {
+      "text": "010101001110100100101011000111010001",
+      "label": "gibberish",
+      "category": "binary_noise",
+      "context": "gibberish"
+    },
+    {
+      "text": "h3jkl!@#$%^&())_+|}{\":?><",
+      "label": "gibberish",
+      "category": "random_symbols",
+      "context": "gibberish"
+    },
+    {
+      "text": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+      "label": "gibberish",
+      "category": "repetitive",
+      "context": "gibberish"
+    },
+    {
+      "text": "p0w3r^%$#@@!@@@qwe",
+      "label": "gibberish",
+      "category": "mixed_gibberish",
+      "context": "gibberish"
+    },
+    {
+      "text": "kl;';/.,mnbvcxzqazwsxedc",
+      "label": "gibberish",
+      "category": "keyboard_mash",
+      "context": "gibberish"
+    },
+    {
+      "text": "555-5555-5555-5555-5555",
+      "label": "gibberish",
+      "category": "repetitive_numbers",
+      "context": "gibberish"
+    },
+    {
+      "text": "xXxXxXxXxXxXxXxXxXxX",
+      "label": "gibberish",
+      "category": "repetitive_pattern",
+      "context": "gibberish"
+    },
+    {
+      "text": "blobblobblobblobblobblob",
+      "label": "gibberish",
+      "category": "random_word_repeat",
+      "context": "gibberish"
+    },
+    {
+      "text": "z!z!z!z!z!z!z!z!z!z!",
+      "label": "gibberish",
+      "category": "repetitive_symbols",
+      "context": "gibberish"
+    },
+    {
+      "text": "x7G#9qP!sL^z8@r0m",
+      "label": "gibberish",
+      "category": "random_chars",
+      "context": "gibberish"
+    },
+    {
+      "text": "randomsequencewithnospacesandmeaning",
+      "label": "gibberish",
+      "category": "random_chars",
+      "context": "gibberish"
+    },
+    {
+      "text": "Nm3kL9pQ2sV8tR1yZ0uB",
+      "label": "gibberish",
+      "category": "alphanumeric_noise",
+      "context": "gibberish"
+    },
+    {
+      "text": "72f4-72f4-72f4-72f4-72f4",
+      "label": "gibberish",
+      "category": "repetitive_pattern",
+      "context": "gibberish"
+    },
+    {
+      "text": "uytrewqpoiuytrewqpoiuyt",
+      "label": "gibberish",
+      "category": "keyboard_mash",
+      "context": "gibberish"
+    },
+    {
+      "text": "System log: ERR##@!##$%$#@!--++--",
+      "label": "gibberish",
+      "category": "log_noise",
+      "context": "gibberish"
+    },
+    {
+      "text": "w00t! that match was sick lol",
+      "label": "good",
+      "category": "internet_slang",
+      "context": "informal"
+    },
+    {
+      "text": "Reference: RFC-7231 Section 4.3.1",
+      "label": "good",
+      "category": "technical_reference",
+      "context": "technical"
+    },
+    {
+      "text": "Backup ID: bk_20251101_7f9a3c",
+      "label": "good",
+      "category": "technical_id",
+      "context": "system"
+    },
+    {
+      "text": "Happy to help — please see attached file: invoice_Q3_final.pdf",
+      "label": "good",
+      "category": "business_sentence",
+      "context": "business"
+    },
+    {
+      "text": "Short chat shorthand: 'gtg, ttyl' from the user log",
+      "label": "good",
+      "category": "internet_slang",
+      "context": "informal"
+    },
+    {
+      "text": "API Key (truncated): sk_live_****************abcd",
+      "label": "good",
+      "category": "technical_id",
+      "context": "system"
+    },
+    {
+      "text": "Leetspeak: 'elite' -> 3l173",
+      "label": "good",
+      "category": "leetspeak",
+      "context": "informal"
+    },
+    {
+      "text": "The synergistic paradigm shift necessitates robust blockchain integration for decentralized autonomous organizations.",
+      "label": "good",
+      "category": "complex_business",
+      "context": "professional"
+    },
+    {
+      "text": "Quantum machine learning algorithms demonstrate polynomial speedup for combinatorial optimization problems.",
+      "label": "good",
+      "category": "technical_jargon",
+      "context": "scientific"
+    },
+    {
+      "text": "https://api.staging.company.com/v3/clients/550e8400-e29b-41d4-a716-446655440000/transactions?start_date=2023-10-01&end_date=2023-10-31",
+      "label": "good",
+      "category": "complex_url",
+      "context": "technical"
+    },
+    {
+      "text": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
+      "label": "good",
+      "category": "jwt_token",
+      "context": "technical"
+    },
+    {
+      "text": "docker-compose -f docker-compose.prod.yml --env-file .env.production up --build -d",
+      "label": "good",
+      "category": "command_line",
+      "context": "technical"
+    },
+    {
+      "text": "SELECT users.id, COUNT(orders.total) FROM users LEFT JOIN orders ON users.id = orders.user_id WHERE orders.created_at BETWEEN '2024-01-01' AND '2024-12-31' GROUP BY users.id HAVING COUNT(orders.total) > 5;",
+      "label": "good",
+      "category": "sql_query",
+      "context": "technical"
+    },
+    {
+      "text": "The multifaceted interdisciplinary approach catalyzes exponential growth in sustainable fintech ecosystems.",
+      "label": "good",
+      "category": "complex_business",
+      "context": "professional"
+    },
+    {
+      "text": "Neural architecture search with transformer-based models achieves state-of-the-art on GLUE benchmark.",
+      "label": "good",
+      "category": "technical_jargon",
+      "context": "scientific"
+    },
+    {
+      "text": "fr tho no cap that's bussin bussin lowkey fire",
+      "label": "good",
+      "category": "modern_slang",
+      "context": "casual"
+    },
+    {
+      "text": "Deadass that's sus af, bet they're gonna ghost",
+      "label": "good",
+      "category": "modern_slang",
+      "context": "casual"
+    },
+    {
+      "text": "55ucc355fu11y pwn3d th3 m41nfram3 w1th 0day 3xpl01t",
+      "label": "good",
+      "category": "complex_leetspeak",
+      "context": "gaming"
+    },
+    {
+      "text": "l33t h4x0rz r 0wn1ng th3 n00bz 1n cyb3r w4rf4r3",
+      "label": "good",
+      "category": "complex_leetspeak",
+      "context": "gaming"
+    },
+    {
+      "text": "asdfjkl;qweruiopzxcvnm,./asdfjkl;qweruiop",
+      "label": "gibberish",
+      "category": "keyboard_mash_complex",
+      "context": "gibberish"
+    },
+    {
+      "text": "1234qwerasdfzxcvasdfqwer1234zxcv",
+      "label": "gibberish",
+      "category": "mixed_pattern",
+      "context": "gibberish"
+    },
+    {
+      "text": "!@#$%^&*()_+qwertyuiop[]\\asdfghjkl;'zxcvbnm,./",
+      "label": "gibberish",
+      "category": "symbol_mash",
+      "context": "gibberish"
+    },
+    {
+      "text": "qazwsxedcrfvtgbyhnujmikolpqazwsxedc",
+      "label": "gibberish",
+      "category": "keyboard_mash_complex",
+      "context": "gibberish"
+    },
+    {
+      "text": "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz",
+      "label": "gibberish",
+      "category": "alphabet_repetition",
+      "context": "gibberish"
+    },
+    {
+      "text": "The ontological epistemological dichotomy in postmodern deconstructionism remains fundamentally unresolved.",
+      "label": "good",
+      "category": "academic_jargon",
+      "context": "academic"
+    },
+    {
+      "text": "Non-Euclidean geometric manifolds in topological quantum field theory exhibit emergent phenomena.",
+      "label": "good",
+      "category": "scientific_complex",
+      "context": "academic"
+    },
+    {
+      "text": "k8s.gcr.io/ingress-nginx/controller:v1.8.0@sha256:744ae3afd6f7c6d6c6b6c6b6c6c6b6c6b6c6b6c6b6c6b6c6b6c6b6c6b6c6b6c6",
+      "label": "good",
+      "category": "docker_image",
+      "context": "technical"
+    },
+    {
+      "text": "git rebase -i HEAD~7 --exec 'npm test' --autosquash",
+      "label": "good",
+      "category": "git_command",
+      "context": "technical"
+    },
+    {
+      "text": "{\"config\": {\"apiVersion\": \"v1\", \"kind\": \"ConfigMap\", \"metadata\": {\"name\": \"app-config\", \"namespace\": \"production\"}, \"data\": {\"DATABASE_URL\": \"postgresql://user:pass@host:5432/db\"}}}",
+      "label": "good",
+      "category": "json_config",
+      "context": "technical"
+    },
+    {
+      "text": "Holistic stakeholder engagement drives transformative innovation across vertically integrated supply chains.",
+      "label": "good",
+      "category": "complex_business",
+      "context": "professional"
+    },
+    {
+      "text": "Multimodal foundation models with cross-attention mechanisms enable zero-shot transfer learning.",
+      "label": "good",
+      "category": "technical_jargon",
+      "context": "scientific"
+    },
+    {
+      "text": "Sheeeeeesh that's straight bussin fr on god no cap",
+      "label": "good",
+      "category": "modern_slang",
+      "context": "casual"
+    },
+    {
+      "text": "Rizz maxed out, main character energy for real",
+      "label": "good",
+      "category": "modern_slang",
+      "context": "casual"
+    },
+    {
+      "text": "phr34k1ng 0ut w1th 5tyl1sh h4xx0r m0v3z 1n cyb3r5p4c3",
+      "label": "good",
+      "category": "complex_leetspeak",
+      "context": "gaming"
+    },
+    {
+      "text": "g0tt4 l0v3 th3 3p1c w1nz0rz 1n d1g1t4l b4ttl3f13ldz",
+      "label": "good",
+      "category": "complex_leetspeak",
+      "context": "gaming"
+    },
+    {
+      "text": "qwertyuiopasdfghjklzxcvbnmqwertyuiopasdfghjklzxcvbnm",
+      "label": "gibberish",
+      "category": "keyboard_mash_complex",
+      "context": "gibberish"
+    },
+    {
+      "text": "1234567890qwertyuiop1234567890asdfghjkl1234567890",
+      "label": "gibberish",
+      "category": "mixed_pattern",
+      "context": "gibberish"
+    },
+    {
+      "text": "!@#$%^&*()QWERTYUIOP{}|ASDFGHJKL:\"ZXCVBNM<>?",
+      "label": "gibberish",
+      "category": "symbol_mash",
+      "context": "gibberish"
+    },
+    {
+      "text": "mnbvcxzlkjhgfdsapoiuytrewqmnbvcxzlkjhgfdsa",
+      "label": "gibberish",
+      "category": "reverse_keyboard",
+      "context": "gibberish"
+    },
+    {
+      "text": "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
+      "label": "gibberish",
+      "category": "block_repetition",
+      "context": "gibberish"
+    },
+    {
+      "text": "Hermeneutic phenomenological analysis reveals intersubjective meaning-making processes.",
+      "label": "good",
+      "category": "academic_jargon",
+      "context": "academic"
+    },
+    {
+      "text": "Supersymmetric string theory compactifications on Calabi-Yau manifolds yield N=1 supergravity.",
+      "label": "good",
+      "category": "scientific_complex",
+      "context": "academic"
+    },
+    {
+      "text": "aws s3 cp s3://bucket-name/path/to/file.json . --region us-west-2 --profile production",
+      "label": "good",
+      "category": "aws_cli",
+      "context": "technical"
+    },
+    {
+      "text": "docker run -it --rm -v $(pwd):/app -w /app -e NODE_ENV=production node:18-alpine npm run build",
+      "label": "good",
+      "category": "docker_command",
+      "context": "technical"
+    },
+    {
+      "text": "<Project Sdk=\"Microsoft.NET.Sdk.Web\"><PropertyGroup><TargetFramework>net7.0</TargetFramework><Nullable>enable</Nullable></PropertyGroup></Project>",
+      "label": "good",
+      "category": "xml_config",
+      "context": "technical"
+    },
+    {
+      "text": "Agile digital transformation catalyzes disruptive innovation in legacy enterprise architectures.",
+      "label": "good",
+      "category": "complex_business",
+      "context": "professional"
+    },
+    {
+      "text": "Differentiable neural computers with external memory achieve complex reasoning capabilities.",
+      "label": "good",
+      "category": "technical_jargon",
+      "context": "scientific"
+    },
+    {
+      "text": "Bet that's giving main character energy fr fr on my momma",
+      "label": "good",
+      "category": "modern_slang",
+      "context": "casual"
+    },
+    {
+      "text": "That fit is fire no cap, straight dripping with style",
+      "label": "good",
+      "category": "modern_slang",
+      "context": "casual"
+    },
+    {
+      "text": "0wn1ng th3 m4tr1x w1th l33t sk1llz 4nd h4xx0r pr0w3ss",
+      "label": "good",
+      "category": "complex_leetspeak",
+      "context": "gaming"
+    },
+    {
+      "text": "cyb3r n1nj4 m0v3z 1n d1g1t4l d0j0 0f c0d3 w4rf4r3",
+      "label": "good",
+      "category": "complex_leetspeak",
+      "context": "gaming"
+    },
+    {
+      "text": "asdf;lkjqwerpoiu.zxcv,mnbasdf;lkjqwerpoiu.zxcv,mnb",
+      "label": "gibberish",
+      "category": "keyboard_mash_complex",
+      "context": "gibberish"
+    },
+    {
+      "text": "q1w2e3r4t5y6u7i8o9p0q1w2e3r4t5y6u7i8o9p0",
+      "label": "gibberish",
+      "category": "mixed_pattern",
+      "context": "gibberish"
+    },
+    {
+      "text": "~!@#$%^&*()_+`1234567890-=QWERTYUIOP{}|ASDFGHJKL:\"ZXCVBNM<>?",
+      "label": "gibberish",
+      "category": "full_symbol_mash",
+      "context": "gibberish"
+    },
+    {
+      "text": "poiuytrewqlkjhgfdsamnbvcxzpoiuytrewqlkjhgfdsa",
+      "label": "gibberish",
+      "category": "reverse_keyboard",
+      "context": "gibberish"
+    },
+    {
+      "text": "abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd",
+      "label": "gibberish",
+      "category": "pattern_repetition",
+      "context": "gibberish"
+    },
+    {
+      "text": "Hello asdfghjkl how are you today?",
+      "label": "gibberish",
+      "category": "mixed_content_mid_sentence",
+      "context": "casual",
+      "difficulty": "high"
+    },
+    {
+      "text": "The qweerty meeting is scheduled for tomorrow",
+      "label": "gibberish",
+      "category": "mixed_content_mid_sentence",
+      "context": "business",
+      "difficulty": "high"
+    },
+    {
+      "text": "Please review the zxcvbnm document when you have time",
+      "label": "gibberish",
+      "category": "mixed_content_mid_sentence",
+      "context": "business",
+      "difficulty": "high"
+    },
+    {
+      "text": "I'll be there in 10 minutes, npoiuy",
+      "label": "gibberish",
+      "category": "mixed_content_suffix",
+      "context": "casual",
+      "difficulty": "high"
+    },
+    {
+      "text": "mnbvcxz Thanks for the update!",
+      "label": "gibberish",
+      "category": "mixed_content_prefix",
+      "context": "casual",
+      "difficulty": "high"
+    },
+    {
+      "text": "The project deadline is Friday, lkmjnhbgvf",
+      "label": "gibberish",
+      "category": "mixed_content_suffix",
+      "context": "business",
+      "difficulty": "high"
+    },
+    {
+      "text": "Let's discuss the qwe project asd in our next meeting",
+      "label": "gibberish",
+      "category": "mixed_content_scattered",
+      "context": "business",
+      "difficulty": "high"
+    },
+    {
+      "text": "Customer service zxc response time has improved",
+      "label": "gibberish",
+      "category": "mixed_content_scattered",
+      "context": "business",
+      "difficulty": "high"
+    },
+    {
+      "text": "The API endpoint fgh returns user data efficiently",
+      "label": "gibberish",
+      "category": "mixed_content_scattered",
+      "context": "technical",
+      "difficulty": "high"
+    },
+    {
+      "text": "Database optimization jkl improved query performance",
+      "label": "gibberish",
+      "category": "mixed_content_scattered",
+      "context": "technical",
+      "difficulty": "high"
+    },
+    {
+      "text": "asdf",
+      "label": "good",
+      "category": "contextual_valid",
+      "context": "technical",
+      "difficulty": "medium",
+      "note": "Common form-filling sequence"
+    },
+    {
+      "text": "qwerty",
+      "label": "good",
+      "category": "contextual_valid",
+      "context": "technical",
+      "difficulty": "medium",
+      "note": "Keyboard layout reference"
+    },
+    {
+      "text": "test123",
+      "label": "good",
+      "category": "contextual_valid",
+      "context": "technical",
+      "difficulty": "medium",
+      "note": "Common test pattern"
+    },
+    {
+      "text": "password1",
+      "label": "good",
+      "category": "contextual_valid",
+      "context": "technical",
+      "difficulty": "medium",
+      "note": "Common password pattern"
+    },
+    {
+      "text": "admin",
+      "label": "good",
+      "category": "contextual_valid",
+      "context": "technical",
+      "difficulty": "low",
+      "note": "Common username"
+    },
+    {
+      "text": "Error code: xyz123 - please contact support",
+      "label": "good",
+      "category": "technical_error_code",
+      "context": "technical",
+      "difficulty": "medium"
+    },
+    {
+      "text": "Session ID: abcdef123456 - expired",
+      "label": "good",
+      "category": "technical_session_id",
+      "context": "technical",
+      "difficulty": "medium"
+    },
+    {
+      "text": "Transaction ref: qwer1234ty - completed",
+      "label": "good",
+      "category": "transaction_reference",
+      "context": "business",
+      "difficulty": "medium"
+    },
+    {
+      "text": "Case #7890asdf - resolved",
+      "label": "good",
+      "category": "case_identifier",
+      "context": "business",
+      "difficulty": "medium"
+    },
+    {
+      "text": "Build asdfgh1234 failed - check logs",
+      "label": "gibberish",
+      "category": "mixed_content_technical",
+      "context": "technical",
+      "difficulty": "high"
+    },
+    {
+      "text": "The user's email is user@example.com, not test@test123",
+      "label": "good",
+      "category": "email_comparison",
+      "context": "business",
+      "difficulty": "medium"
+    },
+    {
+      "text": "URL format: https://example.com/xyz123/path",
+      "label": "good",
+      "category": "url_template",
+      "context": "technical",
+      "difficulty": "medium"
+    },
+    {
+      "text": "File name: document_v2_final_draft.docx",
+      "label": "good",
+      "category": "filename_pattern",
+      "context": "business",
+      "difficulty": "low"
+    },
+    {
+      "text": "Version: 1.2.3-beta Build: abc123def",
+      "label": "good",
+      "category": "version_build",
+      "context": "technical",
+      "difficulty": "medium"
+    },
+    {
+      "text": "Meeting at 3 PM with qwer corporation",
+      "label": "gibberish",
+      "category": "mixed_content_business",
+      "context": "business",
+      "difficulty": "high"
+    },
+    {
+      "text": "Contact John at john_doe@company.com for xyz project details",
+      "label": "gibberish",
+      "category": "mixed_content_business",
+      "context": "business",
+      "difficulty": "high"
+    },
+    {
+      "text": "Server response: 200 OK - payload: {'status': 'success', 'id': 'abc123'}",
+      "label": "good",
+      "category": "api_response",
+      "context": "technical",
+      "difficulty": "medium"
+    },
+    {
+      "text": "Log entry: User asdfgh logged in at 2023-10-15T10:30:00Z",
+      "label": "gibberish",
+      "category": "mixed_content_log",
+      "context": "technical",
+      "difficulty": "high"
+    },
+    {
+      "text": "UUID: 550e8400-e29b-41d4-a716-446655440000",
+      "label": "good",
+      "category": "uuid_format",
+      "context": "technical",
+      "difficulty": "medium"
+    },
+    {
+      "text": "Hash: a1b2c3d4e5f6789012345678901234567890abcd",
+      "label": "good",
+      "category": "hash_format",
+      "context": "technical",
+      "difficulty": "medium"
+    },
+    {
+      "text": "Base64: SGVsbG8gV29ybGQ=",
+      "label": "good",
+      "category": "base64_content",
+      "context": "technical",
+      "difficulty": "medium"
+    },
+    {
+      "text": "MAC address: 00:1B:44:11:3A:B7",
+      "label": "good",
+      "category": "mac_address",
+      "context": "technical",
+      "difficulty": "medium"
+    },
+    {
+      "text": "Price: $99.99 (SKU: XYZ-123-456)",
+      "label": "good",
+      "category": "price_sku",
+      "context": "business",
+      "difficulty": "low"
+    },
+    {
+      "text": "Phone: +1-555-123-4567 (ext: 8910)",
+      "label": "good",
+      "category": "phone_extension",
+      "context": "business",
+      "difficulty": "low"
+    },
+    {
+      "text": "Coordinates: 40.7128° N, 74.0060° W",
+      "label": "good",
+      "category": "coordinates",
+      "context": "technical",
+      "difficulty": "medium"
+    },
+    {
+      "text": "Time: 14:30:00.123 UTC",
+      "label": "good",
+      "category": "precise_timestamp",
+      "context": "technical",
+      "difficulty": "medium"
+    },
+    {
+      "text": "Error 404: Page not found (ref: xyz_missing)",
+      "label": "good",
+      "category": "error_reference",
+      "context": "technical",
+      "difficulty": "medium"
+    },
+    {
+      "text": "Query: SELECT * FROM users WHERE id = 123abc",
+      "label": "gibberish",
+      "category": "mixed_sql_injection_like",
+      "context": "technical",
+      "difficulty": "high"
+    },
+    {
+      "text": "Regex pattern: ^[a-zA-Z0-9]+$ matches xyz123",
+      "label": "good",
+      "category": "regex_example",
+      "context": "technical",
+      "difficulty": "medium"
+    },
+    {
+      "text": "Command: cp file.txt /path/to/xyz123/backup/",
+      "label": "gibberish",
+      "category": "mixed_command_path",
+      "context": "technical",
+      "difficulty": "high"
+    },
+    {
+      "text": "Product code: ABC-123-XYZ (quantity: 5)",
+      "label": "good",
+      "category": "product_code_quantity",
+      "context": "business",
+      "difficulty": "low"
+    },
+    {
+      "text": "Backup file: backup_2023_10_15_xyz123.tar.gz",
+      "label": "good",
+      "category": "backup_filename",
+      "context": "technical",
+      "difficulty": "medium"
+    },
+    {
+      "text": "Config: {'api_url': 'https://api.example.com/v1', 'key': 'xyz123'}",
+      "label": "good",
+      "category": "config_json",
+      "context": "technical",
+      "difficulty": "medium"
+    },
+    {
+      "text": "Email thread: RE: Project XYZ - Action Required",
+      "label": "good",
+      "category": "email_subject",
+      "context": "business",
+      "difficulty": "low"
+    },
+    {
+      "text": "Bug report: Issue #12345 - Component xyz123 failed",
+      "label": "good",
+      "category": "bug_report",
+      "context": "technical",
+      "difficulty": "medium"
+    }
+  ]
+}

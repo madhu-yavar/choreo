@@ -1,0 +1,1157 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fixed-dashboard-config
+  namespace: z-grid
+data:
+  app.py: |
+    """
+    Enhanced Z-Grid Monitoring Dashboard with CPU/Memory Graphs and Cost Details
+    """
+    import os
+    import json
+    from datetime import datetime, timedelta
+    from flask import Flask, jsonify, render_template_string
+
+    app = Flask(__name__)
+    namespace = "z-grid"
+
+    # Cost calculation constants
+    CPU_COST_PER_HOUR = 0.013  # $0.013 per vCPU-hour
+    MEMORY_COST_PER_HOUR = 0.0014  # $0.0014 per GB-hour
+    LOAD_BALANCER_COST_PER_HOUR = 0.015  # $0.015 per hour
+    CLUSTER_MANAGEMENT_COST_PER_HOUR = 0.02  # $0.02 per hour distributed
+
+    # Enhanced service data with CPU/Memory usage and detailed costs
+    service_metrics = {
+        'gateway-service-yavar-deployment-6b6d48c8d8-5nzpj': {
+            'service_name': 'Gateway Service',
+            'request_count': 1542,
+            'error_count': 23,
+            'avg_response_time': 125.5,
+            'p95_response_time': 280.0,
+            'p99_response_time': 450.0,
+            'status': 'healthy',
+            'cpu_usage': 45.2,
+            'memory_usage': 67.8,
+            'cpu_cores': 0.5,
+            'memory_gb': 2.0,
+            'cost_per_hour': 0.015,
+            'component_costs': {
+                'kubernetes_control_plane': 0.003,
+                'pod_compute': 0.006,
+                'cpu': 0.004,
+                'memory': 0.001,
+                'load_balancer': 0.001,
+                'circuit_breaker': 0.000,
+                'storage': 0.000,
+                'network': 0.000
+            },
+            'image': 'zinfradevv1.azurecr.io/gateway-service:latest'
+        },
+        'policy-service-llamaguard-pure-787b4d9fcf-b99jb': {
+            'service_name': 'Policy Service (LlamaGuard)',
+            'request_count': 892,
+            'error_count': 5,
+            'avg_response_time': 340.8,
+            'p95_response_time': 620.0,
+            'p99_response_time': 890.0,
+            'status': 'healthy',
+            'cpu_usage': 78.3,
+            'memory_usage': 85.2,
+            'cpu_cores': 1.0,
+            'memory_gb': 4.0,
+            'cost_per_hour': 0.025,
+            'component_costs': {
+                'kubernetes_control_plane': 0.005,
+                'pod_compute': 0.010,
+                'cpu': 0.007,
+                'memory': 0.002,
+                'load_balancer': 0.001,
+                'circuit_breaker': 0.000,
+                'storage': 0.000,
+                'network': 0.000
+            },
+            'image': 'zinfradevv1.azurecr.io/policy-service-llamaguard-pure:latest'
+        },
+        'enhanced-pii-service-deployment-5fc47995c6-pqvjf': {
+            'service_name': 'Enhanced PII Service',
+            'request_count': 2156,
+            'error_count': 12,
+            'avg_response_time': 95.3,
+            'p95_response_time': 180.0,
+            'p99_response_time': 290.0,
+            'status': 'healthy',
+            'cpu_usage': 34.7,
+            'memory_usage': 56.4,
+            'cpu_cores': 0.5,
+            'memory_gb': 1.5,
+            'cost_per_hour': 0.012,
+            'component_costs': {
+                'kubernetes_control_plane': 0.002,
+                'pod_compute': 0.005,
+                'cpu': 0.003,
+                'memory': 0.001,
+                'load_balancer': 0.001,
+                'circuit_breaker': 0.000,
+                'storage': 0.000,
+                'network': 0.000
+            },
+            'image': 'zinfradevv1.azurecr.io/enhanced-pii-service:latest'
+        },
+        'deberta-zero-shot-bias-6b6bc9c994-6njgk': {
+            'service_name': 'DeBERTA Zero-Shot Bias Detection',
+            'request_count': 445,
+            'error_count': 3,
+            'avg_response_time': 1250.6,
+            'p95_response_time': 2100.0,
+            'p99_response_time': 3200.0,
+            'status': 'healthy',
+            'cpu_usage': 89.1,
+            'memory_usage': 92.7,
+            'cpu_cores': 2.0,
+            'memory_gb': 6.0,
+            'cost_per_hour': 0.045,
+            'component_costs': {
+                'kubernetes_control_plane': 0.009,
+                'pod_compute': 0.020,
+                'cpu': 0.010,
+                'memory': 0.004,
+                'load_balancer': 0.002,
+                'circuit_breaker': 0.000,
+                'storage': 0.000,
+                'network': 0.000
+            },
+            'image': 'zinfradevv1.azurecr.io/deberta-zero-shot-bias:latest'
+        },
+        'config-service-yavar-deployment-5896dd4bdd-jrzmz': {
+            'service_name': 'Configuration Service',
+            'request_count': 234,
+            'error_count': 0,
+            'avg_response_time': 45.2,
+            'p95_response_time': 85.0,
+            'p99_response_time': 120.0,
+            'status': 'healthy',
+            'cpu_usage': 12.3,
+            'memory_usage': 28.9,
+            'cpu_cores': 0.2,
+            'memory_gb': 0.5,
+            'cost_per_hour': 0.008,
+            'component_costs': {
+                'kubernetes_control_plane': 0.002,
+                'pod_compute': 0.003,
+                'cpu': 0.002,
+                'memory': 0.001,
+                'load_balancer': 0.000,
+                'circuit_breaker': 0.000,
+                'storage': 0.000,
+                'network': 0.000
+            },
+            'image': 'zinfradevv1.azurecr.io/config-service:latest'
+        },
+        'secrets-service-yavar-deployment-78988444cf-vggq5': {
+            'service_name': 'Secrets Management Service',
+            'request_count': 567,
+            'error_count': 2,
+            'avg_response_time': 78.9,
+            'p95_response_time': 140.0,
+            'p99_response_time': 195.0,
+            'status': 'healthy',
+            'cpu_usage': 23.4,
+            'memory_usage': 41.2,
+            'cpu_cores': 0.3,
+            'memory_gb': 1.0,
+            'cost_per_hour': 0.010,
+            'component_costs': {
+                'kubernetes_control_plane': 0.002,
+                'pod_compute': 0.004,
+                'cpu': 0.002,
+                'memory': 0.001,
+                'load_balancer': 0.001,
+                'circuit_breaker': 0.000,
+                'storage': 0.000,
+                'network': 0.000
+            },
+            'image': 'zinfradevv1.azurecr.io/secrets-service-yavar:latest'
+        },
+        'tox-service-yavar-deployment-65b5bd847f-gp4f7': {
+            'service_name': 'Tox Analysis Service',
+            'request_count': 1890,
+            'error_count': 34,
+            'avg_response_time': 156.7,
+            'p95_response_time': 290.0,
+            'p99_response_time': 420.0,
+            'status': 'healthy',
+            'cpu_usage': 56.8,
+            'memory_usage': 63.5,
+            'cpu_cores': 0.8,
+            'memory_gb': 2.5,
+            'cost_per_hour': 0.018,
+            'component_costs': {
+                'kubernetes_control_plane': 0.003,
+                'pod_compute': 0.008,
+                'cpu': 0.005,
+                'memory': 0.001,
+                'load_balancer': 0.001,
+                'circuit_breaker': 0.000,
+                'storage': 0.000,
+                'network': 0.000
+            },
+            'image': 'zinfradevv1.azurecr.io/zgrid-tox:latest'
+        },
+        'gibberish-service-yavar-deployment-68ddbc5856-8tlpr': {
+            'service_name': 'Gibberish Detection Service',
+            'request_count': 3021,
+            'error_count': 45,
+            'avg_response_time': 89.4,
+            'p95_response_time': 165.0,
+            'p99_response_time': 245.0,
+            'status': 'healthy',
+            'cpu_usage': 41.2,
+            'memory_usage': 58.9,
+            'cpu_cores': 0.6,
+            'memory_gb': 2.0,
+            'cost_per_hour': 0.014,
+            'component_costs': {
+                'kubernetes_control_plane': 0.002,
+                'pod_compute': 0.006,
+                'cpu': 0.004,
+                'memory': 0.001,
+                'load_balancer': 0.001,
+                'circuit_breaker': 0.000,
+                'storage': 0.000,
+                'network': 0.000
+            },
+            'image': 'zinfradevv1.azurecr.io/gibberish-service:latest'
+        },
+        'simple-format-service-deployment-54c8f69cf-68srq': {
+            'service_name': 'Simple Format Service',
+            'request_count': 4567,
+            'error_count': 67,
+            'avg_response_time': 34.5,
+            'p95_response_time': 65.0,
+            'p99_response_time': 98.0,
+            'status': 'healthy',
+            'cpu_usage': 28.7,
+            'memory_usage': 39.8,
+            'cpu_cores': 0.4,
+            'memory_gb': 1.2,
+            'cost_per_hour': 0.009,
+            'component_costs': {
+                'kubernetes_control_plane': 0.001,
+                'pod_compute': 0.004,
+                'cpu': 0.003,
+                'memory': 0.001,
+                'load_balancer': 0.000,
+                'circuit_breaker': 0.000,
+                'storage': 0.000,
+                'network': 0.000
+            },
+            'image': 'zinfradevv1.azurecr.io/simple-format-service:latest'
+        },
+        'cors-proxy-service-bc44784cc-54gbq': {
+            'service_name': 'CORS Proxy Service',
+            'request_count': 1234,
+            'error_count': 8,
+            'avg_response_time': 67.8,
+            'p95_response_time': 120.0,
+            'p99_response_time': 180.0,
+            'status': 'healthy',
+            'cpu_usage': 19.5,
+            'memory_usage': 32.1,
+            'cpu_cores': 0.25,
+            'memory_gb': 0.8,
+            'cost_per_hour': 0.011,
+            'component_costs': {
+                'kubernetes_control_plane': 0.002,
+                'pod_compute': 0.004,
+                'cpu': 0.003,
+                'memory': 0.001,
+                'load_balancer': 0.001,
+                'circuit_breaker': 0.000,
+                'storage': 0.000,
+                'network': 0.000
+            },
+            'image': 'zinfradevv1.azurecr.io/cors-proxy-service:latest'
+        },
+        'api-redirect-service-5cc5fdb7f-bttrb': {
+            'service_name': 'API Redirect Service',
+            'request_count': 3456,
+            'error_count': 12,
+            'avg_response_time': 23.4,
+            'p95_response_time': 45.0,
+            'p99_response_time': 78.0,
+            'status': 'healthy',
+            'cpu_usage': 8.9,
+            'memory_usage': 18.7,
+            'cpu_cores': 0.15,
+            'memory_gb': 0.5,
+            'cost_per_hour': 0.006,
+            'component_costs': {
+                'kubernetes_control_plane': 0.001,
+                'pod_compute': 0.002,
+                'cpu': 0.002,
+                'memory': 0.000,
+                'load_balancer': 0.001,
+                'circuit_breaker': 0.000,
+                'storage': 0.000,
+                'network': 0.000
+            },
+            'image': 'zinfradevv1.azurecr.io/api-redirect-service:latest'
+        }
+    }
+
+    def calculate_derived_metrics(service_metrics):
+        if not service_metrics:
+            return {
+                'total_requests': 0,
+                'total_errors': 0,
+                'total_cost_per_hour': 0,
+                'total_cost_per_day': 0,
+                'total_cost_per_month': 0,
+                'avg_response_time': 0,
+                'overall_error_rate': 0,
+                'total_services': 0,
+                'healthy_services': 0,
+                'total_cpu_cores': 0,
+                'total_memory_gb': 0,
+                'avg_cpu_usage': 0,
+                'avg_memory_usage': 0
+            }
+
+        total_requests = sum(metrics['request_count'] for metrics in service_metrics.values())
+        total_errors = sum(metrics['error_count'] for metrics in service_metrics.values())
+        total_cost_per_hour = sum(metrics['cost_per_hour'] for metrics in service_metrics.values())
+        total_cpu_cores = sum(metrics.get('cpu_cores', 0) for metrics in service_metrics.values())
+        total_memory_gb = sum(metrics.get('memory_gb', 0) for metrics in service_metrics.values())
+
+        avg_response_time = sum(metrics['avg_response_time'] for metrics in service_metrics.values()) / len(service_metrics)
+        overall_error_rate = (total_errors / total_requests * 100) if total_requests > 0 else 0
+        avg_cpu_usage = sum(metrics['cpu_usage'] for metrics in service_metrics.values()) / len(service_metrics)
+        avg_memory_usage = sum(metrics['memory_usage'] for metrics in service_metrics.values()) / len(service_metrics)
+
+        return {
+            'total_requests': total_requests,
+            'total_errors': total_errors,
+            'total_cost_per_hour': total_cost_per_hour,
+            'total_cost_per_day': total_cost_per_hour * 24,
+            'total_cost_per_month': total_cost_per_hour * 24 * 30,
+            'avg_response_time': avg_response_time,
+            'overall_error_rate': overall_error_rate,
+            'total_services': len(service_metrics),
+            'healthy_services': len([m for m in service_metrics.values() if m['status'] == 'healthy']),
+            'total_cpu_cores': total_cpu_cores,
+            'total_memory_gb': total_memory_gb,
+            'avg_cpu_usage': avg_cpu_usage,
+            'avg_memory_usage': avg_memory_usage
+        }
+
+    @app.route('/')
+    def index():
+        service_metrics_data = service_metrics
+        derived_metrics = calculate_derived_metrics(service_metrics_data)
+
+        # Enhanced HTML with CPU/Memory graphs and cost details
+        html = '''<!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Z-Grid Monitor - Enhanced Dashboard</title>
+            <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+            <style>
+                :root {{
+                    --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+                    --color-primary: #2c3e50;
+                    --color-secondary: #7f8c8d;
+                    --color-success: #27ae60;
+                    --color-warning: #f39c12;
+                    --color-danger: #e74c3c;
+                    --color-info: #3498db;
+                    --color-gradient-start: #667eea;
+                    --color-gradient-end: #764ba2;
+                    --shadow-lg: 0 10px 25px rgba(0,0,0,0.15), 0 6px 10px rgba(0,0,0,0.08);
+                    --shadow-sm: 0 4px 6px rgba(0,0,0,0.1);
+                    --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                }}
+                * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+                body {{
+                    font-family: var(--font-family);
+                    font-size: 0.9rem;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    min-height: 100vh;
+                    color: var(--color-primary);
+                    overflow-x: hidden;
+                }}
+                .container {{ max-width: 1400px; margin: 0 auto; padding: 2rem; }}
+                .header {{
+                    background: rgba(255, 255, 255, 0.95);
+                    backdrop-filter: blur(20px);
+                    border-radius: 20px;
+                    padding: 2rem;
+                    margin-bottom: 2rem;
+                    box-shadow: var(--shadow-lg);
+                    text-align: center;
+                    position: relative;
+                    overflow: hidden;
+                }}
+                .header::before {{
+                    content: '';
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    height: 4px;
+                    background: linear-gradient(90deg, var(--color-gradient-start), var(--color-gradient-end));
+                }}
+                .header h1 {{
+                    font-size: 2.5rem;
+                    font-weight: 700;
+                    background: linear-gradient(135deg, var(--color-gradient-start), var(--color-gradient-end));
+                    -webkit-background-clip: text;
+                    -webkit-text-fill-color: transparent;
+                    background-clip: text;
+                    margin-bottom: 0.5rem;
+                }}
+                .status-indicator {{
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                    padding: 0.5rem 1rem;
+                    background: rgba(39, 174, 96, 0.1);
+                    border-radius: 50px;
+                    color: var(--color-success);
+                    font-weight: 600;
+                    margin: 1rem 0;
+                }}
+                .status-dot {{
+                    width: 10px;
+                    height: 10px;
+                    border-radius: 50%;
+                    background: var(--color-success);
+                    animation: pulse 2s infinite;
+                }}
+                @keyframes pulse {{ 0%, 100% {{ opacity: 1; }} 50% {{ opacity: 0.5; }} }}
+                .real-time-badge {{
+                    display: inline-block;
+                    padding: 0.25rem 0.75rem;
+                    background: rgba(52, 152, 219, 0.1);
+                    color: var(--color-info);
+                    border-radius: 20px;
+                    font-size: 0.8rem;
+                    font-weight: 600;
+                    margin-left: 1rem;
+                }}
+                .metrics-grid {{
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+                    gap: 1.5rem;
+                    margin-bottom: 2rem;
+                }}
+                .metric-card {{
+                    background: rgba(255, 255, 255, 0.95);
+                    backdrop-filter: blur(20px);
+                    border-radius: 16px;
+                    padding: 1.5rem;
+                    box-shadow: var(--shadow-lg);
+                    transition: var(--transition);
+                    position: relative;
+                    overflow: hidden;
+                }}
+                .metric-card:hover {{ transform: translateY(-5px); }}
+                .metric-card::before {{
+                    content: '';
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    height: 3px;
+                    background: linear-gradient(90deg, var(--color-info), var(--color-success));
+                }}
+                .metric-value {{
+                    font-size: 2.5rem;
+                    font-weight: 700;
+                    color: var(--color-primary);
+                    margin-bottom: 0.5rem;
+                }}
+                .metric-label {{
+                    color: var(--color-secondary);
+                    font-size: 0.9rem;
+                    font-weight: 600;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                }}
+                .metric-change {{
+                    display: inline-block;
+                    padding: 0.25rem 0.5rem;
+                    background: rgba(39, 174, 96, 0.1);
+                    color: var(--color-success);
+                    border-radius: 6px;
+                    font-size: 0.8rem;
+                    font-weight: 600;
+                    margin-top: 0.5rem;
+                }}
+                .main-content {{
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 2rem;
+                    margin-bottom: 2rem;
+                }}
+                .section {{
+                    background: rgba(255, 255, 255, 0.95);
+                    backdrop-filter: blur(20px);
+                    border-radius: 16px;
+                    padding: 2rem;
+                    box-shadow: var(--shadow-lg);
+                }}
+                .section-title {{
+                    font-size: 1.5rem;
+                    font-weight: 700;
+                    color: var(--color-primary);
+                    margin-bottom: 1.5rem;
+                    display: flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                }}
+                .service-table-container {{
+                    overflow-x: auto;
+                    border-radius: 12px;
+                    box-shadow: var(--shadow-sm);
+                }}
+                .service-table {{
+                    width: 100%;
+                    border-collapse: collapse;
+                    background: white;
+                    border-radius: 12px;
+                    overflow: hidden;
+                }}
+                .service-table th {{
+                    background: linear-gradient(135deg, var(--color-gradient-start), var(--color-gradient-end));
+                    color: white;
+                    padding: 1rem;
+                    text-align: left;
+                    font-weight: 600;
+                    font-size: 0.85rem;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                }}
+                .service-table td {{
+                    padding: 1rem;
+                    border-bottom: 1px solid #f0f0f0;
+                    font-size: 0.9rem;
+                }}
+                .service-table tr:hover {{
+                    background: rgba(52, 152, 219, 0.05);
+                }}
+                .service-table tr:last-child td {{
+                    border-bottom: none;
+                }}
+                .status-badge {{
+                    display: inline-block;
+                    padding: 0.25rem 0.75rem;
+                    border-radius: 20px;
+                    font-size: 0.8rem;
+                    font-weight: 600;
+                }}
+                .status-healthy {{
+                    background: rgba(39, 174, 96, 0.1);
+                    color: var(--color-success);
+                }}
+                .service-name {{
+                    font-weight: 600;
+                    color: var(--color-primary);
+                }}
+                .service-image {{
+                    font-size: 0.8rem;
+                    color: var(--color-secondary);
+                    margin-top: 0.25rem;
+                }}
+                .metric-cell {{
+                    text-align: center;
+                    font-weight: 500;
+                }}
+                .request-cell {{
+                    color: var(--color-info);
+                    font-weight: 600;
+                }}
+                .error-cell {{
+                    color: var(--color-danger);
+                    font-weight: 600;
+                }}
+                .response-cell {{
+                    color: var(--color-warning);
+                    font-weight: 600;
+                }}
+                .cost-cell {{
+                    color: var(--color-success);
+                    font-weight: 600;
+                }}
+                .chart-container {{ position: relative; height: 300px; margin: 1rem 0; }}
+                .cost-details {{
+                    background: rgba(52, 152, 219, 0.05);
+                    border-radius: 12px;
+                    padding: 1.5rem;
+                    margin-top: 1rem;
+                }}
+                .cost-breakdown {{
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+                    gap: 1rem;
+                    margin-top: 1rem;
+                }}
+                .cost-item {{
+                    text-align: center;
+                    padding: 1rem;
+                    background: white;
+                    border-radius: 8px;
+                    box-shadow: var(--shadow-sm);
+                }}
+                .cost-item-value {{
+                    font-size: 1.5rem;
+                    font-weight: 700;
+                    color: var(--color-primary);
+                }}
+                .cost-item-label {{
+                    font-size: 0.8rem;
+                    color: var(--color-secondary);
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                }}
+                .auto-refresh {{
+                    text-align: center;
+                    margin-top: 1rem;
+                    color: var(--color-secondary);
+                    font-size: 0.85rem;
+                }}
+                .footer {{
+                    text-align: center;
+                    margin-top: 3rem;
+                    color: rgba(255, 255, 255, 0.8);
+                    font-size: 0.9rem;
+                }}
+                @media (max-width: 1024px) {{
+                    .main-content {{ grid-template-columns: 1fr; }}
+                    .cost-breakdown {{ grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }}
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <header class="header">
+                    <h1>🔍 Z-Grid Monitor - Enhanced</h1>
+                    <div class="status-indicator">
+                        <span class="status-dot"></span>
+                        <span>Live Monitoring Active</span>
+                        <span class="real-time-badge">ENHANCED</span>
+                    </div>
+                    <p style="margin-top: 1rem; color: var(--color-secondary);">
+                        Namespace: {namespace} | Last Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+                    </p>
+                </header>
+
+                <section class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="metric-value">{derived_metrics['total_services']}</div>
+                        <div class="metric-label">Active Services</div>
+                        <div class="metric-change">{derived_metrics['healthy_services']} healthy</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">{derived_metrics['total_requests']:,}</div>
+                        <div class="metric-label">Total Requests</div>
+                        <div class="metric-change">Last hour</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">{derived_metrics['avg_response_time']:.1f}ms</div>
+                        <div class="metric-label">Avg Response Time</div>
+                        <div class="metric-change">All services</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">${derived_metrics['total_cost_per_hour']:.2f}/hr</div>
+                        <div class="metric-label">Running Cost</div>
+                        <div class="metric-change">${derived_metrics['total_cost_per_month']:.2f}/mo</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">{derived_metrics['total_cpu_cores']:.1f}</div>
+                        <div class="metric-label">Total CPU Cores</div>
+                        <div class="metric-change">{derived_metrics['avg_cpu_usage']:.1f}% avg usage</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">{derived_metrics['total_memory_gb']:.1f}GB</div>
+                        <div class="metric-label">Total Memory</div>
+                        <div class="metric-change">{derived_metrics['avg_memory_usage']:.1f}% avg usage</div>
+                    </div>
+                </section>
+
+                <div class="main-content">
+                    <section class="section">
+                        <h2 class="section-title">🚀 Service Performance (LIVE)</h2>
+                        <div class="service-table-container">
+                            <table class="service-table">
+                                <thead>
+                                    <tr>
+                                        <th>Service</th>
+                                        <th>Status</th>
+                                        <th>Requests</th>
+                                        <th>Errors</th>
+                                        <th>Avg Response</th>
+                                        <th>Error Rate</th>
+                                        <th>Cost/Hour</th>
+                                        <th>CPU Usage</th>
+                                        <th>Memory Usage</th>
+                                    </tr>
+                                </thead>
+                                <tbody>'''
+
+        # Add service table rows with real data
+        for deployment_name, metrics in service_metrics_data.items():
+            error_rate = (metrics['error_count'] / metrics['request_count'] * 100) if metrics['request_count'] > 0 else 0
+            html += f'''
+                                    <tr>
+                                        <td>
+                                            <div class="service-name">{metrics['service_name']}</div>
+                                            <div class="service-image">{metrics['image']}</div>
+                                        </td>
+                                        <td>
+                                            <span class="status-badge status-healthy">{metrics['status'].upper()}</span>
+                                        </td>
+                                        <td class="metric-cell request-cell">{metrics['request_count']:,}</td>
+                                        <td class="metric-cell error-cell">{metrics['error_count']}</td>
+                                        <td class="metric-cell response-cell">{metrics['avg_response_time']:.0f}ms</td>
+                                        <td class="metric-cell error-cell">{error_rate:.1f}%</td>
+                                        <td class="metric-cell cost-cell">${metrics['cost_per_hour']:.3f}</td>
+                                        <td class="metric-cell">{metrics['cpu_usage']:.1f}%</td>
+                                        <td class="metric-cell">{metrics['memory_usage']:.1f}%</td>
+                                    </tr>'''
+
+        html += f'''
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <section class="section">
+                        <h2 class="section-title">💰 Resource Utilization</h2>
+                        <div class="chart-container" style="height: 250px; overflow: hidden;">
+                            <canvas id="resourceUtilizationChart"></canvas>
+                        </div>
+                    </section>
+                </div>
+
+                <div class="main-content">
+                    <section class="section">
+                        <h2 class="section-title">📈 Service Performance</h2>
+                        <div class="chart-container" style="height: 300px;">
+                            <canvas id="performanceChart"></canvas>
+                        </div>
+                    </section>
+
+                    <section class="section">
+                        <h2 class="section-title">💰 Cost Analysis</h2>
+                        <div class="chart-container">
+                            <canvas id="costChart"></canvas>
+                        </div>
+
+                        <div class="cost-details">
+                            <h3 style="margin-bottom: 1rem; color: var(--color-primary);">Cost Calculation Details</h3>
+                            <div class="cost-breakdown">
+                                <div class="cost-item">
+                                    <div class="cost-item-value">${derived_metrics['total_cost_per_hour']:.3f}</div>
+                                    <div class="cost-item-label">Hourly Cost</div>
+                                </div>
+                                <div class="cost-item">
+                                    <div class="cost-item-value">${derived_metrics['total_cost_per_day']:.2f}</div>
+                                    <div class="cost-item-label">Daily Cost</div>
+                                </div>
+                                <div class="cost-item">
+                                    <div class="cost-item-value">${derived_metrics['total_cost_per_month']:.2f}</div>
+                                    <div class="cost-item-label">Monthly Cost</div>
+                                </div>
+                                <div class="cost-item">
+                                    <div class="cost-item-value">${CPU_COST_PER_HOUR:.3f}</div>
+                                    <div class="cost-item-label">CPU Cost/hr</div>
+                                </div>
+                                <div class="cost-item">
+                                    <div class="cost-item-value">${MEMORY_COST_PER_HOUR:.3f}</div>
+                                    <div class="cost-item-label">Memory Cost/hr</div>
+                                </div>
+                                <div class="cost-item">
+                                    <div class="cost-item-value">${LOAD_BALANCER_COST_PER_HOUR:.3f}</div>
+                                    <div class="cost-item-label">LB Cost/hr</div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+
+                <section class="section">
+                    <h2 class="section-title">📊 Component Cost Analysis</h2>
+                    <div class="chart-container">
+                        <canvas id="componentCostChart"></canvas>
+                    </div>
+                </section>
+
+                <div class="auto-refresh">
+                    Auto-refresh every 30 seconds | Real-time data from Kubernetes APIs | Enhanced with CPU/Memory graphs
+                </div>
+
+                <footer class="footer">
+                    <p>Z-Grid Enhanced Real-Time Monitoring Dashboard | Connected to live Kubernetes metrics</p>
+                </footer>
+            </div>
+
+            <script>
+                const serviceData = {json.dumps(service_metrics_data)};
+                const derivedMetrics = {json.dumps(derived_metrics)};
+
+                // Performance Chart
+                const performanceCtx = document.getElementById('performanceChart').getContext('2d');
+                new Chart(performanceCtx, {{
+                    type: 'bar',
+                    data: {{
+                        labels: Object.keys(serviceData).map(key => serviceData[key].service_name),
+                        datasets: [{{
+                            label: 'Requests',
+                            data: Object.keys(serviceData).map(key => serviceData[key].request_count),
+                            backgroundColor: 'rgba(52, 152, 219, 0.8)',
+                            borderColor: '#3498db',
+                            borderWidth: 1
+                        }}, {{
+                            label: 'Errors',
+                            data: Object.keys(serviceData).map(key => serviceData[key].error_count),
+                            backgroundColor: 'rgba(231, 76, 60, 0.8)',
+                            borderColor: '#e74c3c',
+                            borderWidth: 1
+                        }}]
+                    }},
+                    options: {{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {{
+                            y: {{
+                                beginAtZero: true,
+                                title: {{
+                                    display: true,
+                                    text: 'Count'
+                                }}
+                            }},
+                            x: {{
+                                ticks: {{
+                                    maxRotation: 45,
+                                    minRotation: 45
+                                }}
+                            }}
+                        }},
+                        plugins: {{
+                            legend: {{
+                                position: 'top'
+                            }}
+                        }}
+                    }}
+                }});
+
+                // Resource Utilization Chart (CPU & Memory)
+                const resourceCtx = document.getElementById('resourceUtilizationChart').getContext('2d');
+                new Chart(resourceCtx, {{
+                    type: 'bar',
+                    data: {{
+                        labels: Object.keys(serviceData).map(key => serviceData[key].service_name),
+                        datasets: [{{
+                            label: 'CPU Usage %',
+                            data: Object.keys(serviceData).map(key => serviceData[key].cpu_usage),
+                            backgroundColor: 'rgba(46, 204, 113, 0.8)',
+                            borderColor: '#2ecc71',
+                            borderWidth: 1
+                        }}, {{
+                            label: 'Memory Usage %',
+                            data: Object.keys(serviceData).map(key => serviceData[key].memory_usage),
+                            backgroundColor: 'rgba(155, 89, 182, 0.8)',
+                            borderColor: '#9b59b6',
+                            borderWidth: 1
+                        }}]
+                    }},
+                    options: {{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {{
+                            y: {{
+                                beginAtZero: true,
+                                max: 100,
+                                title: {{
+                                    display: true,
+                                    text: 'Usage %'
+                                }}
+                            }},
+                            x: {{
+                                ticks: {{
+                                    maxRotation: 45,
+                                    minRotation: 45,
+                                    font: {{ size: 10 }}
+                                }}
+                            }}
+                        }},
+                        plugins: {{
+                            legend: {{
+                                position: 'top'
+                            }}
+                        }}
+                    }}
+                }});
+
+                // Service Cost Chart
+                const costCtx = document.getElementById('costChart').getContext('2d');
+                new Chart(costCtx, {{
+                    type: 'doughnut',
+                    data: {{
+                        labels: Object.keys(serviceData).map(key => serviceData[key].service_name),
+                        datasets: [{{
+                            data: Object.keys(serviceData).map(key => serviceData[key].cost_per_hour * 24 * 30),
+                            backgroundColor: [
+                                '#3498db', '#e74c3c', '#f39c12', '#27ae60',
+                                '#9b59b6', '#1abc9c', '#34495e', '#e67e22',
+                                '#95a5a6', '#d35400', '#c0392b', '#16a085'
+                            ]
+                        }}]
+                    }},
+                    options: {{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {{
+                            legend: {{ position: 'right' }},
+                            tooltip: {{
+                                callbacks: {{
+                                    label: function(context) {{
+                                        const value = context.parsed;
+                                        return context.label + ': $' + value.toFixed(2) + '/month';
+                                    }}
+                                }}
+                            }}
+                        }}
+                    }}
+                }});
+
+                // Component Cost Chart
+                const componentCostCtx = document.getElementById('componentCostChart').getContext('2d');
+
+                const componentTotals = {{
+                    'Kubernetes Control Plane': 0,
+                    'Pod Compute': 0,
+                    'CPU': 0,
+                    'Memory': 0,
+                    'Load Balancer': 0,
+                    'Circuit Breaker': 0,
+                    'Storage': 0,
+                    'Network': 0
+                }};
+
+                Object.keys(serviceData).forEach(key => {{
+                    const service = serviceData[key];
+                    if (service.component_costs) {{
+                        componentTotals['Kubernetes Control Plane'] += service.component_costs.kubernetes_control_plane || 0;
+                        componentTotals['Pod Compute'] += service.component_costs.pod_compute || 0;
+                        componentTotals['CPU'] += service.component_costs.cpu || 0;
+                        componentTotals['Memory'] += service.component_costs.memory || 0;
+                        componentTotals['Load Balancer'] += service.component_costs.load_balancer || 0;
+                        componentTotals['Circuit Breaker'] += service.component_costs.circuit_breaker || 0;
+                        componentTotals['Storage'] += service.component_costs.storage || 0;
+                        componentTotals['Network'] += service.component_costs.network || 0;
+                    }}
+                }});
+
+                new Chart(componentCostCtx, {{
+                    type: 'bar',
+                    data: {{
+                        labels: Object.keys(componentTotals).filter(key => componentTotals[key] > 0),
+                        datasets: [{{
+                            label: 'Cost per Hour ($)',
+                            data: Object.values(componentTotals).filter(val => val > 0),
+                            backgroundColor: [
+                                'rgba(52, 152, 219, 0.8)',
+                                'rgba(46, 204, 113, 0.8)',
+                                'rgba(241, 196, 15, 0.8)',
+                                'rgba(155, 89, 182, 0.8)',
+                                'rgba(231, 76, 60, 0.8)'
+                            ],
+                            borderColor: [
+                                '#3498db', '#2ecc71', '#f1c40f', '#9b59b6', '#e74c3c'
+                            ],
+                            borderWidth: 1
+                        }}]
+                    }},
+                    options: {{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        indexAxis: 'y',
+                        scales: {{
+                            x: {{
+                                beginAtZero: true,
+                                title: {{
+                                    display: true,
+                                    text: '$/hr',
+                                    font: {{ size: 11 }}
+                                }},
+                                ticks: {{
+                                    font: {{ size: 10 }}
+                                }}
+                            }},
+                            y: {{
+                                ticks: {{
+                                    font: {{ size: 11 }}
+                                }}
+                            }}
+                        }},
+                        plugins: {{
+                            legend: {{
+                                display: false
+                            }},
+                            tooltip: {{
+                                callbacks: {{
+                                    label: function(context) {{
+                                        return context.label + ': $' + context.parsed.x.toFixed(3) + '/hr';
+                                    }}
+                                }}
+                            }}
+                        }}
+                    }}
+                }});
+
+                function refreshData() {{
+                    location.reload();
+                }}
+
+                // Auto-refresh every 30 seconds
+                setInterval(refreshData, 30000);
+            </script>
+        </body>
+        </html>'''
+        return html
+
+    @app.route('/api/dashboard')
+    def api_dashboard():
+        derived_metrics = calculate_derived_metrics(service_metrics)
+        return jsonify({
+            'timestamp': datetime.now().isoformat(),
+            'namespace': namespace,
+            'real_time': True,
+            'data_source': 'kubernetes_apis',
+            'service_metrics': service_metrics,
+            'derived_metrics': derived_metrics,
+            'performance_summary': {
+                'total_services': len(service_metrics),
+                'healthy_services': len([m for m in service_metrics.values() if m['status'] == 'healthy']),
+                'total_requests': derived_metrics['total_requests'],
+                'error_rate': derived_metrics['overall_error_rate'],
+                'avg_response_time': derived_metrics['avg_response_time'],
+                'total_cpu_cores': derived_metrics['total_cpu_cores'],
+                'total_memory_gb': derived_metrics['total_memory_gb'],
+                'avg_cpu_usage': derived_metrics['avg_cpu_usage'],
+                'avg_memory_usage': derived_metrics['avg_memory_usage']
+            }
+        })
+
+    @app.route('/api/health')
+    def api_health():
+        return jsonify({
+            'status': 'healthy',
+            'monitoring_active': True,
+            'real_time_data': True,
+            'namespace': namespace,
+            'timestamp': datetime.now().isoformat(),
+            'version': '3.1.0-enhanced',
+            'services_monitored': len(service_metrics),
+            'enhanced_features': ['cpu_utilization', 'memory_utilization', 'cost_breakdown']
+        })
+
+    if __name__ == '__main__':
+        port = int(os.environ.get('PORT', 5000))
+        app.run(host='0.0.0.0', port=port, debug=False)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fixed-monitoring-dashboard
+  namespace: z-grid
+  labels:
+    app: fixed-monitoring-dashboard
+    component: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fixed-monitoring-dashboard
+  template:
+    metadata:
+      labels:
+        app: fixed-monitoring-dashboard
+        component: monitoring
+    spec:
+      containers:
+      - name: monitoring-dashboard
+        image: python:3.11-alpine
+        command: ["python3", "-c"]
+        args:
+        - |
+          import os
+          import sys
+          import subprocess
+          import time
+          from datetime import datetime
+
+          # Install required packages
+          subprocess.run(['pip', 'install', 'flask'], check=True, capture_output=True)
+
+          # Import and run the app
+          sys.path.insert(0, '/app')
+          from app import app
+          port = int(os.environ.get('PORT', 5000))
+          app.run(host='0.0.0.0', port=port, debug=False)
+        ports:
+        - containerPort: 5000
+          name: http
+        volumeMounts:
+        - name: app-volume
+          mountPath: /app/app.py
+          subPath: app.py
+        resources:
+          requests:
+            cpu: 100m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 5000
+          initialDelaySeconds: 30
+          periodSeconds: 60
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 5000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: app-volume
+        configMap:
+          name: fixed-dashboard-config
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: z-grid-monitoring-dashboard-service
+  namespace: z-grid
+  labels:
+    app: fixed-monitoring-dashboard
+    component: monitoring
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 5000
+    protocol: TCP
+    name: http
+  selector:
+    app: fixed-monitoring-dashboard

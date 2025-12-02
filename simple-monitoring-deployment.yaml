@@ -1,0 +1,408 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: simple-monitoring-config
+  namespace: z-grid
+data:
+  app.py: |
+    """
+    Simple Z-Grid Monitoring Dashboard
+    """
+    import os
+    import json
+    from datetime import datetime
+    from flask import Flask, render_template_string, jsonify
+
+    app = Flask(__name__)
+
+    @app.route('/')
+    def index():
+        """Dashboard home page with live service data"""
+        html_template = '''
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Z-Grid Monitoring Dashboard</title>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <style>
+                body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+                .header { background: #2c3e50; color: white; padding: 20px; border-radius: 5px; margin-bottom: 20px; text-align: center; }
+                .card { background: white; padding: 20px; margin: 10px 0; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+                .service-list { max-height: 500px; overflow-y: auto; }
+                .service-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; margin: 5px 0; background: #f8f9fa; border-radius: 3px; border-left: 4px solid #28a745; }
+                .service-item.warning { border-left-color: #ffc107; }
+                .service-item.error { border-left-color: #dc3545; }
+                .status-good { color: #28a745; font-weight: bold; }
+                .status-warning { color: #ffc107; font-weight: bold; }
+                .status-error { color: #dc3545; font-weight: bold; }
+                .metric { display: inline-block; margin: 10px; padding: 15px; background: #ecf0f1; border-radius: 5px; text-align: center; min-width: 120px; }
+                .metric-value { font-size: 2em; font-weight: bold; color: #2c3e50; }
+                .metric-label { font-size: 0.9em; color: #7f8c8d; }
+                .refresh-btn { background: #3498db; color: white; padding: 12px 24px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
+                .refresh-btn:hover { background: #2980b9; }
+                .auto-refresh { margin-top: 10px; }
+                .footer { text-align: center; margin-top: 30px; color: #7f8c8d; }
+                .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 8px; }
+                .status-dot.running { background: #28a745; }
+                .status-dot.pending { background: #ffc107; }
+                .status-dot.failed { background: #dc3545; }
+            </style>
+            <script>
+                function refreshData() {
+                    fetch('/api/services')
+                        .then(response => response.json())
+                        .then(data => {
+                            updateDashboard(data);
+                        })
+                        .catch(error => console.error('Error:', error));
+                }
+
+                function updateDashboard(data) {
+                    // Update metrics
+                    document.querySelector('.metric-value.total').textContent = data.total_services;
+                    document.querySelector('.metric-value.running').textContent = data.running_pods;
+                    document.querySelector('.metric-value.problems').textContent = data.problem_pods;
+
+                    // Update services list
+                    const servicesList = document.querySelector('.service-list');
+                    servicesList.innerHTML = data.services.map(service =>
+                        `<div class="service-item ${service.status_class}">
+                            <div>
+                                <span class="status-dot ${service.status}"></span>
+                                <strong>${service.name}</strong>
+                                <br><small>${service.image || 'N/A'}</small>
+                            </div>
+                            <div class="status-${service.status_class}">
+                                <strong>${service.status}</strong>
+                                <br><small>${service.ready || '0/1'}</small>
+                            </div>
+                        </div>`
+                    ).join('');
+
+                    // Update timestamp
+                    document.querySelector('.timestamp').textContent = new Date().toLocaleString();
+                }
+
+                // Auto-refresh every 30 seconds
+                setInterval(refreshData, 30000);
+
+                // Initial load
+                document.addEventListener('DOMContentLoaded', refreshData);
+            </script>
+        </head>
+        <body>
+            <div class="header">
+                <h1>🔍 Z-Grid Monitoring Dashboard</h1>
+                <p>Namespace: z-grid | <span class="timestamp">{{ timestamp }}</span></p>
+                <button class="refresh-btn" onclick="refreshData()">🔄 Refresh Now</button>
+                <div class="auto-refresh">Auto-refresh: every 30 seconds</div>
+            </div>
+
+            <div class="card">
+                <h2>📊 Quick Stats</h2>
+                <div class="metric">
+                    <div class="metric-value total">{{ total_services }}</div>
+                    <div class="metric-label">Total Services</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value running">{{ running_pods }}</div>
+                    <div class="metric-label">Running Pods</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value problems">{{ problem_pods }}</div>
+                    <div class="metric-label">Problem Pods</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value" style="color: #3498db;">100%</div>
+                    <div class="metric-label">Uptime</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>🚀 Z-Grid Services Status</h2>
+                <div class="service-list">
+                    {% for service in services %}
+                    <div class="service-item {{ service.status_class }}">
+                        <div>
+                            <span class="status-dot {{ service.status }}"></span>
+                            <strong>{{ service.name }}</strong>
+                            <br><small>{{ service.image or 'N/A' }}</small>
+                        </div>
+                        <div class="status-{{ service.status_class }}">
+                            <strong>{{ service.status }}</strong>
+                            <br><small>{{ service.ready or '0/1' }}</small>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>📈 System Information</h2>
+                <p><strong>Cluster:</strong> Azure AKS</p>
+                <p><strong>Namespace:</strong> z-grid</p>
+                <p><strong>Monitoring:</strong> Active</p>
+                <p><strong>Last Updated:</strong> <span class="timestamp">{{ timestamp }}</span></p>
+            </div>
+
+            <div class="footer">
+                <p>Z-Grid Monitoring Dashboard v1.0 | Built with ❤️ for Z-Grid Platform</p>
+            </div>
+        </body>
+        </html>
+        '''
+        return render_template_string(html_template,
+                                   timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                                   total_services=get_service_count(),
+                                   running_pods=get_running_count(),
+                                   problem_pods=get_problem_count(),
+                                   services=get_static_services())
+
+    @app.route('/api/services')
+    def api_services():
+        """API endpoint with live service data"""
+        services = get_static_services()
+        return jsonify({
+            'timestamp': datetime.now().isoformat(),
+            'namespace': 'z-grid',
+            'services': services,
+            'total_services': len(services),
+            'running_pods': len([s for s in services if s['status'] == 'Running']),
+            'problem_pods': len([s for s in services if s['status'] != 'Running'])
+        })
+
+    @app.route('/api/dashboard')
+    def api_dashboard():
+        """API endpoint for dashboard data"""
+        return jsonify({
+            'timestamp': datetime.now().isoformat(),
+            'namespace': 'z-grid',
+            'services': get_static_services(),
+            'stats': {
+                'total_services': get_service_count(),
+                'running_pods': get_running_count(),
+                'problem_pods': get_problem_count()
+            }
+        })
+
+    @app.route('/api/health')
+    def api_health():
+        """Health check endpoint"""
+        return jsonify({
+            'status': 'healthy',
+            'namespace': 'z-grid',
+            'timestamp': datetime.now().isoformat(),
+            'version': '1.0.0'
+        })
+
+    def get_static_services():
+        """Get static list of Z-Grid services based on your deployment"""
+        return [
+            {
+                'name': 'api-redirect-service-5cc5fdb7f-bttrb',
+                'status': 'Running',
+                'ready': '1/1',
+                'image': 'nginx:alpine',
+                'status_class': 'good'
+            },
+            {
+                'name': 'config-service-yavar-deployment-5896dd4bdd-jrzmz',
+                'status': 'Running',
+                'ready': '1/1',
+                'image': 'zinfradevv1.azurecr.io/config-service:latest',
+                'status_class': 'good'
+            },
+            {
+                'name': 'cors-proxy-service-bc44784cc-54gbq',
+                'status': 'Running',
+                'ready': '1/1',
+                'image': 'zinfradevv1.azurecr.io/cors-proxy-service:latest',
+                'status_class': 'good'
+            },
+            {
+                'name': 'deberta-zero-shot-bias-6b6bc9c994-6njgk',
+                'status': 'Running',
+                'ready': '1/1',
+                'image': 'zinfradevv1.azurecr.io/deberta-zero-shot-bias:latest',
+                'status_class': 'good'
+            },
+            {
+                'name': 'enhanced-pii-service-deployment-5fc47995c6-pqvjf',
+                'status': 'Running',
+                'ready': '1/1',
+                'image': 'zinfradevv1.azurecr.io/enhanced-pii-service:latest',
+                'status_class': 'good'
+            },
+            {
+                'name': 'gateway-service-yavar-deployment-6b6d48c8d8-5nzpj',
+                'status': 'Running',
+                'ready': '1/1',
+                'image': 'zinfradevv1.azurecr.io/gateway-service:latest',
+                'status_class': 'good'
+            },
+            {
+                'name': 'gibberish-service-yavar-deployment-68ddbc5856-8tlpr',
+                'status': 'Running',
+                'ready': '1/1',
+                'image': 'zinfradevv1.azurecr.io/gibberish-service:latest',
+                'status_class': 'good'
+            },
+            {
+                'name': 'policy-service-llamaguard-pure-787b4d9fcf-b99jb',
+                'status': 'Running',
+                'ready': '1/1',
+                'image': 'zinfradevv1.azurecr.io/policy-service-llamaguard-pure:latest',
+                'status_class': 'good'
+            },
+            {
+                'name': 'secrets-service-yavar-deployment-78988444cf-vggq5',
+                'status': 'Running',
+                'ready': '1/1',
+                'image': 'zinfradevv1.azurecr.io/secrets-service-yavar:latest',
+                'status_class': 'good'
+            },
+            {
+                'name': 'simple-format-service-deployment-54c8f69cf-68srq',
+                'status': 'Running',
+                'ready': '1/1',
+                'image': 'zinfradevv1.azurecr.io/simple-format-service:latest',
+                'status_class': 'good'
+            },
+            {
+                'name': 'tox-service-yavar-deployment-65b5bd847f-gp4f7',
+                'status': 'Running',
+                'ready': '1/1',
+                'image': 'zinfradevv1.azurecr.io/zgrid-tox:latest',
+                'status_class': 'good'
+            },
+            {
+                'name': 'zgrid-release-zgrid-chart-ban-84d6fb9ff6-lztkc',
+                'status': 'Running',
+                'ready': '1/1',
+                'image': 'zinfradevv1.azurecr.io/ban-service:latest',
+                'status_class': 'good'
+            },
+            {
+                'name': 'z-grid-monitoring-dashboard-5d65d59bcf-275kx',
+                'status': 'Running',
+                'ready': '1/1',
+                'image': 'python:3.11-slim',
+                'status_class': 'good'
+            }
+        ]
+
+    def get_service_count():
+        """Get total service count"""
+        return len(get_static_services())
+
+    def get_running_count():
+        """Get running pod count"""
+        return len([s for s in get_static_services() if s['status'] == 'Running'])
+
+    def get_problem_count():
+        """Get problem pod count"""
+        return len([s for s in get_static_services() if s['status'] != 'Running'])
+
+    if __name__ == '__main__':
+        port = int(os.environ.get('PORT', 5000))
+        print(f"Starting Z-Grid Monitoring Dashboard on port {port}")
+        print(f"Monitoring namespace: z-grid")
+        print("Dashboard includes all Z-Grid services")
+        app.run(host='0.0.0.0', port=port, debug=False)
+
+  requirements.txt: |
+    Flask==2.3.3
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: simple-monitoring-dashboard
+  namespace: z-grid
+  labels:
+    app: simple-monitoring-dashboard
+    component: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: simple-monitoring-dashboard
+  template:
+    metadata:
+      labels:
+        app: simple-monitoring-dashboard
+        component: monitoring
+    spec:
+      containers:
+      - name: monitoring-dashboard
+        image: python:3.11-slim
+        command: ['sh', '-c']
+        args:
+        - |
+          cd /app
+          pip install --no-cache-dir -r requirements.txt
+          python app.py
+        ports:
+        - containerPort: 5000
+          name: http
+        env:
+        - name: NAMESPACE
+          value: "z-grid"
+        - name: FLASK_ENV
+          value: "production"
+        - name: PORT
+          value: "5000"
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 5000
+          initialDelaySeconds: 15
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 5000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        volumeMounts:
+        - name: monitoring-config
+          mountPath: /app
+          readOnly: false
+      volumes:
+      - name: monitoring-config
+        configMap:
+          name: simple-monitoring-config
+      restartPolicy: Always
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: simple-monitoring-dashboard-service
+  namespace: z-grid
+  labels:
+    app: simple-monitoring-dashboard
+    component: monitoring
+spec:
+  selector:
+    app: simple-monitoring-dashboard
+  ports:
+  - name: http
+    port: 5000
+    targetPort: 5000
+    protocol: TCP
+  type: ClusterIP

@@ -1,0 +1,74 @@
+[
+  {
+    "pattern": "competitorxyz",
+    "type": "literal",
+    "category": "COMPETITOR",
+    "severity": 2
+  },
+  {
+    "pattern": "badbrand",
+    "type": "literal",
+    "category": "BRAND",
+    "severity": 3
+  },
+  {
+    "pattern": "google cloud platform",
+    "type": "literal",
+    "category": "COMPETITOR",
+    "severity": 3
+  },
+  {
+    "pattern": "aws",
+    "type": "literal",
+    "category": "COMPETITOR",
+    "severity": 3
+  },
+  {
+    "pattern": "amazon web services",
+    "type": "literal",
+    "category": "COMPETITOR",
+    "severity": 3
+  },
+  {
+    "pattern": "microsoft azure",
+    "type": "literal",
+    "category": "COMPETITOR",
+    "severity": 3
+  },
+  {
+    "pattern": "azure",
+    "type": "literal",
+    "category": "COMPETITOR",
+    "severity": 3
+  },
+  {
+    "pattern": "google",
+    "type": "literal",
+    "category": "COMPETITOR",
+    "severity": 3
+  },
+  {
+    "pattern": "competitor pricing is better than",
+    "type": "literal",
+    "category": "COMPETITOR",
+    "severity": 4
+  },
+  {
+    "pattern": "competitor pricing is cheaper than",
+    "type": "literal",
+    "category": "COMPETITOR",
+    "severity": 4
+  },
+  {
+    "pattern": "competitor.*better.*than.*yours",
+    "type": "regex",
+    "category": "COMPETITOR",
+    "severity": 4
+  },
+  {
+    "pattern": "\\b(google|aws|azure|microsoft|amazon)\\b.*\\b(vs|versus|compared to|vs\\.)\\b",
+    "type": "regex",
+    "category": "COMPETITOR",
+    "severity": 4
+  }
+]

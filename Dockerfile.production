@@ -1,0 +1,49 @@
+# Production-Ready PII Detection Service
+FROM python:3.9-slim
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create and activate virtual environment
+RUN python -m venv /opt/venv
+
+# Copy requirements first for better caching
+COPY requirements-simple.txt .
+
+# Install Python dependencies
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements-simple.txt
+
+# Download SpaCy model
+RUN python -m spacy download en_core_web_sm
+
+# Create app directory
+WORKDIR /app
+
+# Copy application code
+COPY app.py .
+COPY pii_presidio.py .
+COPY utils.py .
+COPY custom_configs/ ./custom_configs/
+
+# Create non-root user
+RUN useradd -m -u 1000 piiuser && chown -R piiuser:piiuser /app /opt/venv
+USER piiuser
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Run the application
+CMD ["python", "-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]

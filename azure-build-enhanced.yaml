@@ -1,0 +1,24 @@
+# Azure Container Registry Build Configuration
+# Enhanced Toxicity Service
+
+version: '3.8'
+
+services:
+  enhanced-tox-builder:
+    build:
+      context: .
+      dockerfile: Dockerfile.enhanced
+      platforms:
+        - linux/amd64
+      cache_from:
+        - zinfradevv1.azurecr.io/zgrid-tox:cache-enhanced
+      args:
+        - BUILDKIT_INLINE_CACHE=1
+    image: zinfradevv1.azurecr.io/zgrid-tox:enhanced-v2.0.0
+    tags:
+      - "zinfradevv1.azurecr.io/zgrid-tox:enhanced-v2.0.0"
+      - "zinfradevv1.azurecr.io/zgrid-tox:latest-enhanced"
+      - "zinfradevv1.azurecr.io/zgrid-tox:cache-enhanced"
+
+# Build command example:
+# docker buildx build --platform linux/amd64 -f Dockerfile.enhanced -t zinfradevv1.azurecr.io/zgrid-tox:enhanced-v2.0.0 --push .

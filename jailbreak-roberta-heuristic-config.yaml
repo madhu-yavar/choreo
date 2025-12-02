@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jailbreak-roberta-heuristic-config
+  namespace: z-grid
+  labels:
+    app: jailbreak-roberta-heuristic
+    component: configuration
+data:
+  heuristics.json: |
+    {
+      "ultra_risk_patterns": {
+        "chemical_procedure": 0.9,
+        "ethical_guideline_violation": 0.9,
+        "illegal_actions_analysis": 0.8,
+        "coercion_techniques": 0.8,
+        "radicalization_taxonomy": 0.9,
+        "dan_patterns": 0.8,
+        "obfuscation_patterns": 0.6,
+        "hate_speech_patterns": 0.7,
+        "privacy_invasion_patterns": 0.5
+      },
+      "dan_patterns": [
+        "ignore all previous instructions", "do anything now", "without restrictions",
+        "must answer without restrictions", "system override", "bypass safety",
+        "ignore ethical guidelines", "dan", "do anything now"
+      ],
+      "malicious_patterns": [
+        "step-by-step", "exact instructions", "detailed instructions", "show me how",
+        "create fake", "generate", "bypass", "exploit", "avoid detection",
+        "without knowledge", "without consent", "manipulation techniques",
+        "psychological manipulation", "social engineering", "obfuscated version"
+      ],
+      "educational_patterns": [
+        "for educational purposes", "academic research", "study", "learn", "understand",
+        "analyze", "research", "certification", "course", "training", "education",
+        "protect against", "defend against", "prevent", "detect", "identify",
+        "safety guidelines", "best practices", "privacy protection", "ethical",
+        "professional", "authorized", "compliance", "what do you know", "tell me about",
+        "explain", "describe", "information about", "can you explain", "help me understand",
+        "summarize", "summary", "review", "outline", "recap"
+      ],
+      "creative_contexts": [
+        "fictional story", "novel", "movie script", "creative writing", "hypothetical",
+        "roleplaying", "game development", "thought experiment", "creative exercise"
+      ]
+    }
+  deployment_info.json: |
+    {
+      "model_info": {
+        "name": "roberta-enhanced-heuristics-jailbreak-detector",
+        "base_model": "roberta-base",
+        "version": "enhanced-v1",
+        "performance": {
+          "accuracy_range": "70-95%",
+          "improvement": "+37.5%",
+          "test_cases": {
+            "basic_examples": "95%",
+            "manipulation_examples": "90%",
+            "sophisticated_examples": "90%",
+            "ultra_sophisticated": "70%"
+          }
+        },
+        "deployment": {
+          "model_path": "/model_volume/roberta_jailbreak_binary/final_model",
+          "service_port": 5004,
+          "container_port": 8080,
+          "replicas": 2,
+          "namespace": "z-grid"
+        }
+      }
+    }

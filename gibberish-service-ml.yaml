@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gibberish-service-ml
+  namespace: z-grid
+  labels:
+    app: gibberish-service-ml
+    component: content-analysis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gibberish-service-ml
+  template:
+    metadata:
+      labels:
+        app: gibberish-service-ml
+        component: content-analysis
+    spec:
+      containers:
+      - name: gibberish-ml
+        image: python:3.11-slim
+        ports:
+        - containerPort: 8007
+        env:
+        - name: GIBBERISH_API_KEYS
+          value: "gibberish123,supersecret123,biasyavar,enhancedgibberish123"
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          echo "🚀 Installing Enhanced ML Gibberish Service Dependencies..."
+          apt-get update && apt-get install -y gcc g++ &&
+          pip install --no-cache-dir \
+            flask \
+            requests \
+            numpy \
+            scikit-learn \
+            joblib \
+            pandas &&
+          echo "✅ Dependencies installed successfully" &&
+          echo "🧠 Starting Enhanced ML Gibberish Detection Service..." &&
+          cd /app &&
+          python app.py
+        volumeMounts:
+        - name: gibberish-ml-code
+          mountPath: /app/app.py
+          subPath: app.py
+        resources:
+          requests:
+            cpu: "200m"
+            memory: "256Mi"
+          limits:
+            cpu: "600m"
+            memory: "768Mi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8007
+          initialDelaySeconds: 45
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8007
+          initialDelaySeconds: 20
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: gibberish-ml-code
+        configMap:
+          name: gibberish-ml-code
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gibberish-service-ml
+  namespace: z-grid
+  labels:
+    app: gibberish-service-ml
+    component: content-analysis
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 8007
+    targetPort: 8007
+    protocol: TCP
+  selector:
+    app: gibberish-service-ml

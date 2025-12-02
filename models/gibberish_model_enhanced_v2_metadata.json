@@ -1,0 +1,11 @@
+{
+  "version": "2.0",
+  "created": "2025-11-24T23:50:52.973400",
+  "threshold": 2.5,
+  "training_samples": 206,
+  "good_samples": 124,
+  "gibberish_samples": 82,
+  "false_positive_rate": 100,
+  "edge_case_errors": 5,
+  "improvement": "Reduced threshold from 3.6 to 2.5"
+}

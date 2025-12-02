@@ -1,0 +1,74 @@
+# Enhanced Toxicity Service Dockerfile
+# Advanced pattern-based + ML hybrid toxicity detection with context awareness
+
+FROM python:3.12-slim
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first for better Docker layer caching
+COPY requirements.enhanced.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.enhanced.txt
+
+# Copy application code
+COPY enhanced_app.py .
+COPY enhanced_toxicity_model.py .
+COPY enhanced_profanity.py .
+COPY utils.py .
+COPY init_ml_models.py .
+
+# Pre-download and cache Detoxify ML models for faster startup
+RUN python -c "
+import os
+import sys
+print('Pre-downloading Detoxify ML models...')
+try:
+    # Download all available Detoxify models
+    from detoxify import Detoxify
+
+    models = ['original', 'unbiased', 'multilingual']
+    for model_name in models:
+        print(f'Downloading {model_name} model...')
+        try:
+            model = Detoxify(model_name)
+            print(f'✅ {model_name} model downloaded successfully')
+        except Exception as e:
+            print(f'⚠️  Failed to download {model_name}: {e}')
+
+    print('✅ All available models pre-downloaded')
+except ImportError as e:
+    print(f'❌ Detoxify import failed: {e}')
+    sys.exit(1)
+except Exception as e:
+    print(f'❌ Model pre-download failed: {e}')
+    sys.exit(1)
+"
+
+# Create non-root user for security
+RUN useradd --create-home --shell /bin/bash tox && chown -R tox:tox /app
+USER tox
+
+# Health check endpoint
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8001/health || exit 1
+
+# Expose the port (K8s uses port 8001 for tox service)
+EXPOSE 8001
+
+# Command to run the enhanced toxicity service
+CMD ["uvicorn", "enhanced_app:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "1"]

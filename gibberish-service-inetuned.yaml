@@ -1,0 +1,127 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gibberish-service
+  namespace: z-grid
+  labels:
+    app: gibberish-service
+    version: v2.0
+    model: inetuned-gibbrish-model
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: gibberish-service
+  template:
+    metadata:
+      labels:
+        app: gibberish-service
+        version: v2.0
+        model: inetuned-gibbrish-model
+    spec:
+      containers:
+      - name: gibberish-service
+        image: inetuned-gibberish:v2.0
+        ports:
+        - containerPort: 8007
+          name: http
+        env:
+        - name: FLASK_RUN_PORT
+          value: "8007"
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1000m"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8007
+          initialDelaySeconds: 120
+          periodSeconds: 30
+          timeoutSeconds: 15
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8007
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: app-tmp
+          mountPath: /app/.tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: app-tmp
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gibberish-service
+  namespace: z-grid
+  labels:
+    app: gibberish-service
+spec:
+  selector:
+    app: gibberish-service
+  ports:
+  - name: http
+    port: 8007
+    targetPort: 8007
+    protocol: TCP
+  type: LoadBalancer
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gibberish-service-config
+  namespace: z-grid
+data:
+  service.yaml: |
+    service:
+      name: "Inetuned Gibbrish Model"
+      version: "v2.0"
+      model_type: "inetuned"
+      training_accuracy: "96.7%"
+      f1_score: "0.944"
+      dataset_size: "298 samples"
+
+    api:
+      port: 8007
+      endpoints:
+        - path: "/health"
+          method: "GET"
+          description: "Service health check"
+        - path: "/detect"
+          method: "POST"
+          description: "Single text detection"
+        - path: "/batch_detect"
+          method: "POST"
+          description: "Batch text detection"
+        - path: "/model_info"
+          method: "GET"
+          description: "Model information"
+
+    model:
+      path: "/app/models/hf_space_efficient/inetuned_gibbrish_model"
+      checkpoint: "inetuned_gibbrish_model"
+      architecture: "Fine-tuned transformer"
+      device: "cpu"

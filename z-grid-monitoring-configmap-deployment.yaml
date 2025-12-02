@@ -1,0 +1,300 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: z-grid-monitoring-config
+  namespace: z-grid
+data:
+  app.py: |
+    """
+    Simple monitoring dashboard for Z-Grid services
+    """
+    import os
+    import json
+    from datetime import datetime
+    from flask import Flask, render_template_string, jsonify
+    import subprocess
+    import time
+
+    app = Flask(__name__)
+
+    @app.route('/')
+    def index():
+        """Simple dashboard home page"""
+        html_template = '''
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Z-Grid Monitoring Dashboard</title>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <style>
+                body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+                .header { background: #2c3e50; color: white; padding: 20px; border-radius: 5px; margin-bottom: 20px; }
+                .card { background: white; padding: 20px; margin: 10px 0; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+                .service-list { max-height: 400px; overflow-y: auto; }
+                .status-good { color: #27ae60; }
+                .status-warning { color: #f39c12; }
+                .status-error { color: #e74c3c; }
+                .metric { display: inline-block; margin: 10px; padding: 10px; background: #ecf0f1; border-radius: 3px; }
+                .refresh-btn { background: #3498db; color: white; padding: 10px 20px; border: none; border-radius: 3px; cursor: pointer; }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>🔍 Z-Grid Monitoring Dashboard</h1>
+                <p>Namespace: {{ namespace }} | Last Updated: {{ timestamp }}</p>
+                <button class="refresh-btn" onclick="location.reload()">🔄 Refresh</button>
+            </div>
+
+            <div class="card">
+                <h2>📊 Quick Stats</h2>
+                <div class="metric">Total Services: {{ total_services }}</div>
+                <div class="metric">Running Pods: {{ running_pods }}</div>
+                <div class="metric">Problem Pods: {{ problem_pods }}</div>
+            </div>
+
+            <div class="card">
+                <h2>🚀 Services Status</h2>
+                <div class="service-list">
+                    {% for service in services %}
+                    <div class="service-item">
+                        <strong>{{ service.name }}</strong> -
+                        <span class="status-{{ service.status_class }}">{{ service.status }}</span>
+                        {% if service.ready != service.total %}
+                            (Ready: {{ service.ready }}/{{ service.total }})
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>📈 Recent Events</h2>
+                <div class="events-list">
+                    {% for event in recent_events %}
+                    <div>{{ event }}</div>
+                    {% endfor %}
+                </div>
+            </div>
+        </body>
+        </html>
+        '''
+        return render_template_string(html_template,
+                                   namespace=os.getenv('NAMESPACE', 'z-grid'),
+                                   timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                                   total_services=len(get_services()),
+                                   running_pods=len([p for p in get_services() if 'Running' in p['status']]),
+                                   problem_pods=len([p for p in get_services() if 'Running' not in p['status']]),
+                                   services=get_services(),
+                                   recent_events=get_recent_events())
+
+    @app.route('/api/dashboard')
+    def api_dashboard():
+        """API endpoint for dashboard data"""
+        return jsonify({
+            'timestamp': datetime.now().isoformat(),
+            'namespace': os.getenv('NAMESPACE', 'z-grid'),
+            'services': get_services(),
+            'stats': {
+                'total_services': len(get_services()),
+                'running_pods': len([p for p in get_services() if 'Running' in p['status']]),
+                'problem_pods': len([p for p in get_services() if 'Running' not in p['status']])
+            }
+        })
+
+    @app.route('/api/health')
+    def api_health():
+        """Health check endpoint"""
+        return jsonify({
+            'status': 'healthy',
+            'namespace': os.getenv('NAMESPACE', 'z-grid'),
+            'timestamp': datetime.now().isoformat()
+        })
+
+    def get_services():
+        """Get list of services in the namespace"""
+        try:
+            result = subprocess.run(['kubectl', 'get', 'pods', '-n', os.getenv('NAMESPACE', 'z-grid'), '-o', 'json'],
+                                  capture_output=True, text=True)
+            if result.returncode == 0:
+                data = json.loads(result.stdout)
+                services = []
+                for pod in data['items']:
+                    name = pod['metadata']['name']
+                    status = pod['status']['phase']
+                    ready = '0/1'
+
+                    # Get ready status
+                    for condition in pod.get('status', {}).get('conditions', []):
+                        if condition['type'] == 'Ready':
+                            ready = '1/1' if condition['status'] == 'True' else '0/1'
+
+                    # Determine status class for styling
+                    status_class = 'good' if status == 'Running' else 'error'
+
+                    services.append({
+                        'name': name,
+                        'status': status,
+                        'ready': ready,
+                        'total': '1',
+                        'status_class': status_class
+                    })
+                return services
+            else:
+                return []
+        except Exception as e:
+            print(f"Error getting services: {e}")
+            return []
+
+    def get_recent_events():
+        """Get recent events from the namespace"""
+        try:
+            result = subprocess.run(['kubectl', 'get', 'events', '-n', os.getenv('NAMESPACE', 'z-grid'), '--sort-by=.metadata.creationTimestamp', '-o', 'json'],
+                                  capture_output=True, text=True)
+            if result.returncode == 0:
+                data = json.loads(result.stdout)
+                events = []
+                for event in data['items'][-10:]:  # Last 10 events
+                    events.append(f"{event['lastTimestamp']}: {event['type']} - {event['message']}")
+                return events
+            else:
+                return ["Unable to fetch events"]
+        except Exception as e:
+            print(f"Error getting events: {e}")
+            return ["Error fetching events"]
+
+    if __name__ == '__main__':
+        port = int(os.environ.get('PORT', 5000))
+        print(f"Starting Z-Grid Monitoring Dashboard on port {port}")
+        print(f"Monitoring namespace: {os.getenv('NAMESPACE', 'z-grid')}")
+        app.run(host='0.0.0.0', port=port, debug=False)
+
+  requirements.txt: |
+    Flask==2.3.3
+    kubernetes==28.1.0
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: z-grid-monitoring-dashboard
+  namespace: z-grid
+  labels:
+    app: z-grid-monitoring-dashboard
+    component: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: z-grid-monitoring-dashboard
+  template:
+    metadata:
+      labels:
+        app: z-grid-monitoring-dashboard
+        component: monitoring
+    spec:
+      serviceAccountName: z-grid-monitoring-sa
+      containers:
+      - name: monitoring-dashboard
+        image: python:3.11-slim
+        command: ['sh', '-c']
+        args:
+        - |
+          apt-get update && apt-get install -y curl
+          cd /app
+          pip install --no-cache-dir -r requirements.txt
+          python app.py
+        ports:
+        - containerPort: 5000
+          name: http
+        env:
+        - name: NAMESPACE
+          value: "z-grid"
+        - name: FLASK_ENV
+          value: "production"
+        - name: PORT
+          value: "5000"
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 5000
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 5000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        volumeMounts:
+        - name: monitoring-config
+          mountPath: /app
+          readOnly: false
+      volumes:
+      - name: monitoring-config
+        configMap:
+          name: z-grid-monitoring-config
+      restartPolicy: Always
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: z-grid-monitoring-dashboard-service
+  namespace: z-grid
+  labels:
+    app: z-grid-monitoring-dashboard
+    component: monitoring
+spec:
+  selector:
+    app: z-grid-monitoring-dashboard
+  ports:
+  - name: http
+    port: 5000
+    targetPort: 5000
+    protocol: TCP
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: z-grid-monitoring-sa
+  namespace: z-grid
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: z-grid-monitoring-role
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "events"]
+  verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: z-grid-monitoring-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: z-grid-monitoring-role
+subjects:
+- kind: ServiceAccount
+  name: z-grid-monitoring-sa
+  namespace: z-grid

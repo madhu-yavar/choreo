@@ -1,0 +1,120 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zgrid-chatbot-service
+  namespace: zgrid
+  labels:
+    app: zgrid-chatbot-service
+    component: chatbot
+    version: v1
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: zgrid-chatbot-service
+  template:
+    metadata:
+      labels:
+        app: zgrid-chatbot-service
+        component: chatbot
+        version: v1
+    spec:
+      containers:
+      - name: chatbot-service
+        image: zgrid/chatbot-service:latest
+        ports:
+        - containerPort: 8008
+          name: http
+          protocol: TCP
+        env:
+        - name: GATEWAY_URL
+          value: "http://gateway-service.zgrid.svc.cluster.local:8000"
+        - name: ZGRID_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: zgrid-secrets
+              key: api-key
+        - name: LOG_LEVEL
+          value: "INFO"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8008
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8008
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        fsGroup: 1000
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zgrid-chatbot-service
+  namespace: zgrid
+  labels:
+    app: zgrid-chatbot-service
+    component: chatbot
+spec:
+  selector:
+    app: zgrid-chatbot-service
+  ports:
+  - name: http
+    port: 8008
+    targetPort: 8008
+    protocol: TCP
+  type: ClusterIP
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: zgrid-chatbot-ingress
+  namespace: zgrid
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  tls:
+  - hosts:
+    - chatbot.zgrid.example.com
+    secretName: zgrid-chatbot-tls
+  rules:
+  - host: chatbot.zgrid.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: zgrid-chatbot-service
+            port:
+              number: 8008

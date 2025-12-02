@@ -1,0 +1,171 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: enhanced-bias-service-zero-shot
+  namespace: z-grid
+  labels:
+    app: enhanced-bias-service-zero-shot
+    version: v4.0
+    component: bias-detection
+    ml-model: deberta-v3-large
+    type: zero-shot-classification
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: enhanced-bias-service-zero-shot
+  template:
+    metadata:
+      labels:
+        app: enhanced-bias-service-zero-shot
+        version: v4.0
+        component: bias-detection
+        ml-model: deberta-v3-large
+        type: zero-shot-classification
+    spec:
+      containers:
+      - name: enhanced-bias-service-zero-shot
+        image: zinfradevv1.azurecr.io/enhanced-bias-service-zero-shot:20251031-v4.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8012
+          name: http
+          protocol: TCP
+        env:
+        - name: BIAS_API_KEYS
+          value: "supersecret123,biasyavar,enhancedbias123,zgridbias2025"
+        - name: DEBERTA_MODEL_ID
+          value: "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli"
+        - name: DEBERTA_LOCAL_DIR
+          value: "/app/models/deberta"
+        - name: POLICY_SERVICE_URL
+          value: "http://zgrid-release-zgrid-chart-policy.z-grid:8003"
+        - name: DEVICE
+          value: "cpu"
+        - name: CORS_ALLOWED_ORIGINS
+          value: "https://zgrid-feature-flow.lovable.app,http://localhost:5173,http://localhost:3000,https://zgrid.zinfradev1.lovable.app"
+        # Resource requirements for zero-shot ML
+        resources:
+          requests:
+            cpu: "500m"    # Increased for ML inference
+            memory: "2Gi"   # Increased for large model
+          limits:
+            cpu: "2000m"   # Maximum CPU for ML tasks
+            memory: "4Gi"   # Maximum memory for model
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8012
+          initialDelaySeconds: 60  # Longer delay for model loading
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8012
+          initialDelaySeconds: 30  # Ready sooner once model is loaded
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        # Volume for model caching
+        volumeMounts:
+        - name: model-cache
+          mountPath: /app/models
+      volumes:
+      - name: model-cache
+        emptyDir:
+          sizeLimit: 5Gi  # Cache for DeBERTa model
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: enhanced-bias-service-zero-shot
+  namespace: z-grid
+  labels:
+    app: enhanced-bias-service-zero-shot
+    component: bias-detection
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 8012
+    targetPort: 8012
+    protocol: TCP
+    name: http
+  selector:
+    app: enhanced-bias-service-zero-shot
+  # Load balancer configuration
+  sessionAffinity: None
+  externalTrafficPolicy: Cluster
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: enhanced-bias-service-zero-shot-ingress
+  namespace: z-grid
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+spec:
+  tls:
+  - hosts:
+    - policy-zgrid.20.242.183.197.nip.io
+    secretName: zgrid-wildcard-tls
+  rules:
+  - host: policy-zgrid.20.242.183.197.nip.io
+    http:
+      paths:
+      - path: /bias
+        pathType: Prefix
+        backend:
+          service:
+            name: enhanced-bias-service-zero-shot
+            port:
+              number: 8012
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: enhanced-bias-service-zero-shot
+            port:
+              number: 8012
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: enhanced-bias-service-zero-shot-config
+  namespace: z-grid
+data:
+  service_name: "Enhanced Bias Service with Zero-Shot ML"
+  service_version: "4.0"
+  ml_model: "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli"
+  description: "Real ML-powered bias detection using zero-shot classification with DeBERTa-v3-large NLI model"
+  features: |
+    - Zero-shot classification with DeBERTa-v3-large
+    - Natural Language Inference (NLI) based detection
+    - Multi-label bias detection
+    - 6 bias categories: gender, race, age, religious, disability, socioeconomic
+    - High confidence scoring (0.0-1.0)
+    - Comprehensive analysis patterns + keywords + ML
+    - Real-time bias detection and classification
+  bias_categories: |
+    - gender bias
+    - racial bias
+    - age bias
+    - religious bias
+    - disability bias
+    - socioeconomic bias
+  ml_performance: |
+    - Model: DeBERTa-v3-large (1.3B parameters)
+    - Method: Zero-shot classification
+    - Success Rate: 91.67% (60 tests, 10 per bias type)
+    - Response Time: 2-4 seconds
+    - Memory Usage: ~4GB
+    - CPU Usage: ~500m requests, up to 2g peak

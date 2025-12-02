@@ -1,0 +1,404 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: load-test-metrics-api
+  namespace: z-grid
+  labels:
+    app: load-test-metrics-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: load-test-metrics-api
+  template:
+    metadata:
+      labels:
+        app: load-test-metrics-api
+    spec:
+      containers:
+      - name: metrics-api
+        image: python:3.11-slim
+        ports:
+        - containerPort: 8080
+        command: ["/bin/bash"]
+        args:
+          - -c
+          - |
+            pip install flask aiohttp kubernetes
+
+            cat > metrics_server.py << 'EOF'
+            from flask import Flask, jsonify, render_template_string
+            import json
+            import time
+            import subprocess
+            import os
+            from kubernetes import client, config
+            import threading
+
+            app = Flask(__name__)
+
+            # Try to load in-cluster config, fallback to local
+            try:
+                config.load_incluster_config()
+            except:
+                config.load_kube_config()
+
+            v1 = client.CoreV1Api()
+            namespace = "z-grid"
+            job_name = "gateway-v2-load-test-48hr-fixed"
+
+            def get_load_test_metrics():
+                """Get real-time metrics from the load test"""
+                try:
+                    # Get the load test pod
+                    pods = v1.list_namespaced_pod(namespace, label_selector=f"job-name={job_name}")
+                    if not pods.items:
+                        return {"status": "error", "message": "Load test pod not found"}
+
+                    pod = pods.items[0]
+
+                    # Get pod logs
+                    try:
+                        logs = v1.read_namespaced_pod_log(name=pod.metadata.name, namespace=namespace, tail_lines=100)
+                    except:
+                        logs = ""
+
+                    # Get pod resource usage (if metrics server is available)
+                    try:
+                        metrics_cmd = ["kubectl", "top", "pod", pod.metadata.name, "-n", namespace]
+                        metrics_output = subprocess.check_output(metrics_cmd, stderr=subprocess.DEVNULL).decode()
+                    except:
+                        metrics_output = ""
+
+                    # Parse logs for progress information
+                    requests_sent = 0
+                    success_rate = 0
+                    avg_response_time = 0
+                    progress_percentage = 0
+
+                    if logs:
+                        lines = logs.split('\n')
+                        for line in lines:
+                            if "📈" in line and "/" in line:
+                                # Parse progress line like: 📈 100/48,000 (0.2%) | Success: 98.5% | Avg Time: 0.234s
+                                parts = line.split('|')
+                                if len(parts) >= 3:
+                                    try:
+                                        progress_part = parts[0]
+                                        if "(" in progress_part:
+                                            progress_percentage = float(progress_part.split("(")[1].split("%")[0])
+
+                                        success_part = parts[1]
+                                        if "Success:" in success_part:
+                                            success_rate = float(success_part.split("Success:")[1].split("%")[0].strip())
+
+                                        time_part = parts[2]
+                                        if "Avg Time:" in time_part:
+                                            avg_response_time = float(time_part.split("Avg Time:")[1].split("s")[0].strip())
+
+                                        # Extract request count
+                                        req_part = progress_part.split("📈")[1].strip()
+                                        if "/" in req_part:
+                                            requests_sent = int(req_part.split("/")[0].replace(",", ""))
+                                    except:
+                                        pass
+
+                    # Get pod status
+                    pod_status = pod.status.phase
+
+                    return {
+                        "status": "running",
+                        "pod_name": pod.metadata.name,
+                        "pod_status": pod_status,
+                        "requests_sent": requests_sent,
+                        "total_requests": 48000,
+                        "progress_percentage": progress_percentage,
+                        "success_rate": success_rate,
+                        "avg_response_time": avg_response_time,
+                        "metrics_output": metrics_output,
+                        "last_update": time.time(),
+                        "start_time": pod.status.start_time.isoformat() if pod.status.start_time else None
+                    }
+
+                except Exception as e:
+                    return {"status": "error", "message": str(e)}
+
+            def get_gateway_metrics():
+                """Get Gateway V2 service metrics"""
+                try:
+                    pods = v1.list_namespaced_pod(namespace, label_selector="app=gateway-v2")
+                    gateway_pods = []
+
+                    for pod in pods.items:
+                        pod_info = {
+                            "name": pod.metadata.name,
+                            "status": pod.status.phase,
+                            "ready": all(container.ready for container in pod.status.container_statuses or [])
+                        }
+
+                        # Get resource usage
+                        try:
+                            metrics_cmd = ["kubectl", "top", "pod", pod.metadata.name, "-n", namespace]
+                            metrics_output = subprocess.check_output(metrics_cmd, stderr=subprocess.DEVNULL).decode()
+                            pod_info["metrics"] = metrics_output.strip()
+                        except:
+                            pod_info["metrics"] = "Not available"
+
+                        gateway_pods.append(pod_info)
+
+                    return {"pods": gateway_pods, "total_pods": len(gateway_pods)}
+
+                except Exception as e:
+                    return {"status": "error", "message": str(e)}
+
+            def get_service_health():
+                """Check health of all internal services"""
+                services = [
+                    {"name": "DeBERTa Bias Detection", "service": "bias-deberta-v3.z-grid", "port": 8012},
+                    {"name": "Toxicity Detection", "service": "tox-service-ml-enabled.z-grid", "port": 8001},
+                    {"name": "PII Detection", "service": "pii-enhanced-v3-service.z-grid", "port": 8000},
+                    {"name": "Secrets Detection", "service": "secrets-service-yavar-fixed.z-grid", "port": 8005},
+                    {"name": "Jailbreak Detection", "service": "jailbreak-service-yavar-fixed.z-grid", "port": 8002},
+                    {"name": "Format Validation", "service": "format-service-yavar-fixed.z-grid", "port": 8006},
+                    {"name": "Gibberish Detection", "service": "gibberish-service-yavar-fixed.z-grid", "port": 8007}
+                ]
+
+                service_status = []
+                for service in services:
+                    # Check if pods are running
+                    try:
+                        service_name = service["service"].split(".")[0]
+                        pods = v1.list_namespaced_pod(namespace, label_selector=f"app={service_name}")
+                        running_pods = sum(1 for pod in pods.items if pod.status.phase == "Running")
+                        ready_pods = sum(1 for pod in pods.items if all(c.ready for c in pod.status.container_statuses or []))
+
+                        service_status.append({
+                            "name": service["name"],
+                            "service": service["service"],
+                            "total_pods": len(pods.items),
+                            "running_pods": running_pods,
+                            "ready_pods": ready_pods,
+                            "status": "healthy" if running_pods > 0 and ready_pods > 0 else "unhealthy"
+                        })
+                    except:
+                        service_status.append({
+                            "name": service["name"],
+                            "service": service["service"],
+                            "status": "error"
+                        })
+
+                return service_status
+
+            @app.route('/')
+            def dashboard():
+                """Main dashboard"""
+                html_template = '''
+                <!DOCTYPE html>
+                <html lang="en">
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>Gateway V2 Load Test Metrics</title>
+                    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+                    <style>
+                        body {
+                            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                            margin: 0;
+                            padding: 20px;
+                            background-color: #f5f5f5;
+                        }
+                        .container {
+                            max-width: 1400px;
+                            margin: 0 auto;
+                            background: white;
+                            border-radius: 8px;
+                            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                            padding: 30px;
+                        }
+                        .header {
+                            text-align: center;
+                            margin-bottom: 30px;
+                            color: #2c3e50;
+                        }
+                        .metrics-grid {
+                            display: grid;
+                            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+                            gap: 20px;
+                            margin-bottom: 30px;
+                        }
+                        .metric-card {
+                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                            color: white;
+                            padding: 20px;
+                            border-radius: 8px;
+                            text-align: center;
+                        }
+                        .metric-value {
+                            font-size: 2em;
+                            font-weight: bold;
+                            margin-bottom: 5px;
+                        }
+                        .metric-label {
+                            font-size: 0.9em;
+                            opacity: 0.9;
+                        }
+                        .services-grid {
+                            display: grid;
+                            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                            gap: 15px;
+                            margin-bottom: 30px;
+                        }
+                        .service-card {
+                            background: #ecf0f1;
+                            padding: 15px;
+                            border-radius: 6px;
+                            text-align: center;
+                        }
+                        .service-healthy { background: #d5f4e6; color: #27ae60; }
+                        .service-unhealthy { background: #fadbd8; color: #e74c3c; }
+                        .gateway-pods {
+                            background: #e8f4fd;
+                            padding: 20px;
+                            border-radius: 8px;
+                            margin-bottom: 30px;
+                        }
+                        .refresh-info {
+                            text-align: center;
+                            margin-top: 20px;
+                            color: #7f8c8d;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <h1 class="header">🚀 Gateway V2 Load Test Real-Time Metrics</h1>
+
+                        <div class="metrics-grid">
+                            <div class="metric-card">
+                                <div class="metric-value" id="requests-sent">-</div>
+                                <div class="metric-label">Requests Sent</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-value" id="progress">-</div>
+                                <div class="metric-label">Progress (%)</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-value" id="success-rate">-</div>
+                                <div class="metric-label">Success Rate (%)</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-value" id="avg-response">-</div>
+                                <div class="metric-label">Avg Response Time (s)</div>
+                            </div>
+                        </div>
+
+                        <h3>🎯 Internal Services Health</h3>
+                        <div class="services-grid" id="services-grid">
+                            Loading services...
+                        </div>
+
+                        <h3>🚀 Gateway V2 Pods</h3>
+                        <div class="gateway-pods" id="gateway-pods">
+                            Loading gateway status...
+                        </div>
+
+                        <div class="refresh-info">
+                            <p>📊 Last updated: <span id="last-update">-</span></p>
+                            <p>🔄 Auto-refresh every 30 seconds</p>
+                        </div>
+                    </div>
+
+                    <script>
+                        function loadMetrics() {
+                            fetch('/api/metrics')
+                                .then(response => response.json())
+                                .then(data => {
+                                    // Update load test metrics
+                                    document.getElementById('requests-sent').textContent = data.load_test.requests_sent.toLocaleString();
+                                    document.getElementById('progress').textContent = data.load_test.progress_percentage.toFixed(1);
+                                    document.getElementById('success-rate').textContent = data.load_test.success_rate.toFixed(1);
+                                    document.getElementById('avg-response').textContent = data.load_test.avg_response_time.toFixed(3);
+                                    document.getElementById('last-update').textContent = new Date().toLocaleString();
+
+                                    // Update services
+                                    const servicesGrid = document.getElementById('services-grid');
+                                    servicesGrid.innerHTML = '';
+                                    data.services.forEach(service => {
+                                        const serviceCard = document.createElement('div');
+                                        serviceCard.className = `service-card service-${service.status}`;
+                                        serviceCard.innerHTML = `
+                                            <strong>${service.name}</strong><br>
+                                            <span>${service.ready_pods}/${service.total_pods} pods ready</span>
+                                        `;
+                                        servicesGrid.appendChild(serviceCard);
+                                    });
+
+                                    // Update gateway pods
+                                    const gatewayPods = document.getElementById('gateway-pods');
+                                    gatewayPods.innerHTML = '<strong>Gateway V2 Pods Status:</strong><br>';
+                                    data.gateway.pods.forEach(pod => {
+                                        const status = pod.ready ? '✅ Ready' : '❌ Not Ready';
+                                        gatewayPods.innerHTML += `${pod.name}: ${status}<br>`;
+                                        if (pod.metrics && pod.metrics !== 'Not available') {
+                                            gatewayPods.innerHTML += `<small>${pod.metrics}</small><br>`;
+                                        }
+                                    });
+                                })
+                                .catch(error => {
+                                    console.error('Error loading metrics:', error);
+                                });
+                        }
+
+                        // Load metrics immediately and then every 30 seconds
+                        loadMetrics();
+                        setInterval(loadMetrics, 30000);
+                    </script>
+                </body>
+                </html>
+                '''
+                return render_template_string(html_template)
+
+            @app.route('/api/metrics')
+            def api_metrics():
+                """API endpoint for metrics"""
+                return jsonify({
+                    "load_test": get_load_test_metrics(),
+                    "gateway": get_gateway_metrics(),
+                    "services": get_service_health(),
+                    "timestamp": time.time()
+                })
+
+            @app.route('/health')
+            def health():
+                """Health check endpoint"""
+                return jsonify({"status": "healthy", "timestamp": time.time()})
+
+            if __name__ == '__main__':
+                app.run(host='0.0.0.0', port=8080, debug=True)
+            EOF
+
+            python metrics_server.py
+
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 100m
+            memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: load-test-metrics-api-service
+  namespace: z-grid
+  labels:
+    app: load-test-metrics-api
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+  selector:
+    app: load-test-metrics-api

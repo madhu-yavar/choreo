@@ -1,0 +1,241 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: enhanced-jailbreak-service-v7
+  namespace: z-grid
+  labels:
+    app: enhanced-jailbreak-service-v7
+    service-type: content-moderation
+    version: v7
+    performance-tier: high
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: enhanced-jailbreak-service-v7
+  template:
+    metadata:
+      labels:
+        app: enhanced-jailbreak-service-v7
+        service-type: content-moderation
+        version: v7
+        performance-tier: high
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: enhanced-jailbreak-service-v7
+        image: python:3.10-slim
+        imagePullPolicy: Always
+        command: ["/bin/bash"]
+        args: ["-c", "
+          apt-get update && apt-get install -y git curl gcc g++ &&
+          pip install torch==2.1.0 transformers==4.36.0 scikit-learn fastapi uvicorn pydantic prometheus-client flask requests numpy &&
+          cd /app &&
+          chmod +x jailbreak_service_improved_v7.py &&
+          python jailbreak_service_improved_v7.py
+        "]
+        ports:
+        - containerPort: 8002
+          name: http
+          protocol: TCP
+        - containerPort: 9090
+          name: metrics
+          protocol: TCP
+        env:
+        - name: SERVICE_NAME
+          value: "enhanced-jailbreak-service-v7"
+        - name: SERVICE_PORT
+          value: "8002"
+        - name: SERVICE_HOST
+          value: "0.0.0.0"
+        - name: MODEL_NAME
+          value: "distilbert-base-uncased"
+        - name: MAX_SEQUENCE_LENGTH
+          value: "512"
+        - name: DEVICE
+          value: "cpu"
+        - name: LOG_LEVEL
+          value: "INFO"
+        # Enhanced ML thresholds for v7
+        - name: ML_CONFIDENCE_HIGH
+          value: "0.60"
+        - name: ML_CONFIDENCE_MEDIUM
+          value: "0.52"
+        - name: ML_CONFIDENCE_LOW
+          value: "0.48"
+        - name: RULE_BOOST_FACTOR
+          value: "0.5"
+        - name: JAILBREAK_API_KEYS
+          value: "supersecret123,jailvalyavar"
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1000m"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+        volumeMounts:
+        - name: config-volume
+          mountPath: /app/config
+          readOnly: true
+        - name: models-volume
+          mountPath: /app/models
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 120  # Increased for model loading
+          periodSeconds: 30
+          timeoutSeconds: 15
+          failureThreshold: 3
+          successThreshold: 1
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 60   # Reduced for faster readiness
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+          successThreshold: 1
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 36   # 6 minutes for model loading
+          successThreshold: 1
+      volumes:
+      - name: config-volume
+        configMap:
+          name: enhanced-jailbreak-service-v7-config
+      - name: models-volume
+        emptyDir:
+          sizeLimit: 10Gi
+      nodeSelector:
+        nodepool: default
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - enhanced-jailbreak-service-v7
+              topologyKey: kubernetes.io/hostname
+      tolerations:
+      - key: "node-pool"
+        operator: "Equal"
+        value: "default"
+        effect: "NoSchedule"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: enhanced-jailbreak-service-v7
+  namespace: z-grid
+  labels:
+    app: enhanced-jailbreak-service-v7
+    service-type: content-moderation
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 8002
+    targetPort: 8002
+    protocol: TCP
+  - name: metrics
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+  selector:
+    app: enhanced-jailbreak-service-v7
+---
+apiVersion: v1
+kind: ServiceMonitor
+metadata:
+  name: enhanced-jailbreak-service-v7-monitor
+  namespace: z-grid
+  labels:
+    app: enhanced-jailbreak-service-v7
+    monitoring: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: enhanced-jailbreak-service-v7
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+    honorLabels: true
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: enhanced-jailbreak-service-v7-pdb
+  namespace: z-grid
+  labels:
+    app: enhanced-jailbreak-service-v7
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: enhanced-jailbreak-service-v7
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: enhanced-jailbreak-service-v7-hpa
+  namespace: z-grid
+  labels:
+    app: enhanced-jailbreak-service-v7
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: enhanced-jailbreak-service-v7
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 25
+        periodSeconds: 60

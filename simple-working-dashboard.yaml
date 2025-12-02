@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: simple-working-dashboard
+  namespace: z-grid
+  labels:
+    app: simple-working-dashboard
+    component: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: simple-working-dashboard
+  template:
+    metadata:
+      labels:
+        app: simple-working-dashboard
+        component: monitoring
+    spec:
+      containers:
+      - name: dashboard
+        image: python:3.11-slim
+        ports:
+        - containerPort: 5000
+        env:
+        - name: FLASK_APP
+          value: "dashboard.py"
+        - name: FLASK_ENV
+          value: "production"
+        command: ["sh", "-c"]
+        args:
+        - |
+          # Install required packages
+          pip install flask
+
+          # Start the Flask application
+          cd /app && python dashboard.py
+        volumeMounts:
+        - name: dashboard-script
+          mountPath: /app/dashboard.py
+          subPath: dashboard.py
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: dashboard-script
+        configMap:
+          name: simple-working-dashboard
+          items:
+          - key: dashboard.py
+            path: dashboard.py
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: simple-working-dashboard-service
+  namespace: z-grid
+  labels:
+    app: simple-working-dashboard
+    component: monitoring
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 5000
+    protocol: TCP
+  selector:
+    app: simple-working-dashboard

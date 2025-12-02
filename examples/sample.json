@@ -1,0 +1,4 @@
+{
+  "text": "Email john.doe@acme.com, phone +1 (415) 555-1212",
+  "expressions": ["Email {email}, phone {phone}"]
+}

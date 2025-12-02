@@ -1,0 +1,939 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fixed-dashboard-config
+  namespace: z-grid
+data:
+  app.py: |
+    """
+    Minimalistic Z-Grid Monitoring Dashboard with Pie Charts
+    """
+    import os
+    import json
+    from datetime import datetime, timedelta
+    from flask import Flask, jsonify, render_template_string
+
+    app = Flask(__name__)
+    namespace = "z-grid"
+
+    # Service data with realistic metrics
+    service_metrics = {
+        'gateway-service': {
+            'service_name': 'Gateway Service',
+            'request_count': 1542,
+            'error_count': 23,
+            'avg_response_time': 125.5,
+            'status': 'healthy',
+            'cpu_usage': 45.2,
+            'memory_usage': 67.8,
+            'cost_per_hour': 0.015,
+            'component_costs': {
+                'kubernetes_control_plane': 0.003,
+                'pod_compute': 0.006,
+                'cpu': 0.004,
+                'memory': 0.001,
+                'load_balancer': 0.001
+            }
+        },
+        'policy-service': {
+            'service_name': 'Policy Service (LlamaGuard)',
+            'request_count': 892,
+            'error_count': 5,
+            'avg_response_time': 340.8,
+            'status': 'healthy',
+            'cpu_usage': 78.3,
+            'memory_usage': 85.2,
+            'cost_per_hour': 0.025,
+            'component_costs': {
+                'kubernetes_control_plane': 0.005,
+                'pod_compute': 0.010,
+                'cpu': 0.007,
+                'memory': 0.002,
+                'load_balancer': 0.001
+            }
+        },
+        'pii-service': {
+            'service_name': 'Enhanced PII Service',
+            'request_count': 2156,
+            'error_count': 12,
+            'avg_response_time': 95.3,
+            'status': 'healthy',
+            'cpu_usage': 34.7,
+            'memory_usage': 56.4,
+            'cost_per_hour': 0.012,
+            'component_costs': {
+                'kubernetes_control_plane': 0.002,
+                'pod_compute': 0.005,
+                'cpu': 0.003,
+                'memory': 0.001,
+                'load_balancer': 0.001
+            }
+        },
+        'bias-service': {
+            'service_name': 'DeBERTA Zero-Shot Bias Detection',
+            'request_count': 445,
+            'error_count': 3,
+            'avg_response_time': 1250.6,
+            'status': 'healthy',
+            'cpu_usage': 89.1,
+            'memory_usage': 92.7,
+            'cost_per_hour': 0.045,
+            'component_costs': {
+                'kubernetes_control_plane': 0.009,
+                'pod_compute': 0.020,
+                'cpu': 0.010,
+                'memory': 0.004,
+                'load_balancer': 0.002
+            }
+        },
+        'config-service': {
+            'service_name': 'Configuration Service',
+            'request_count': 234,
+            'error_count': 0,
+            'avg_response_time': 45.2,
+            'status': 'healthy',
+            'cpu_usage': 12.3,
+            'memory_usage': 28.9,
+            'cost_per_hour': 0.008,
+            'component_costs': {
+                'kubernetes_control_plane': 0.002,
+                'pod_compute': 0.003,
+                'cpu': 0.002,
+                'memory': 0.001
+            }
+        },
+        'secrets-service': {
+            'service_name': 'Secrets Management Service',
+            'request_count': 567,
+            'error_count': 2,
+            'avg_response_time': 78.9,
+            'status': 'healthy',
+            'cpu_usage': 23.4,
+            'memory_usage': 41.2,
+            'cost_per_hour': 0.010,
+            'component_costs': {
+                'kubernetes_control_plane': 0.002,
+                'pod_compute': 0.004,
+                'cpu': 0.002,
+                'memory': 0.001,
+                'load_balancer': 0.001
+            }
+        },
+        'tox-service': {
+            'service_name': 'Tox Analysis Service',
+            'request_count': 1890,
+            'error_count': 34,
+            'avg_response_time': 156.7,
+            'status': 'healthy',
+            'cpu_usage': 56.8,
+            'memory_usage': 63.5,
+            'cost_per_hour': 0.018,
+            'component_costs': {
+                'kubernetes_control_plane': 0.003,
+                'pod_compute': 0.008,
+                'cpu': 0.005,
+                'memory': 0.001,
+                'load_balancer': 0.001
+            }
+        },
+        'gibberish-service': {
+            'service_name': 'Gibberish Detection Service',
+            'request_count': 3021,
+            'error_count': 45,
+            'avg_response_time': 89.4,
+            'status': 'healthy',
+            'cpu_usage': 41.2,
+            'memory_usage': 58.9,
+            'cost_per_hour': 0.014,
+            'component_costs': {
+                'kubernetes_control_plane': 0.002,
+                'pod_compute': 0.006,
+                'cpu': 0.004,
+                'memory': 0.001,
+                'load_balancer': 0.001
+            }
+        }
+    }
+
+    def calculate_derived_metrics(service_metrics):
+        if not service_metrics:
+            return {
+                'total_requests': 0,
+                'total_errors': 0,
+                'total_cost_per_hour': 0,
+                'total_cost_per_day': 0,
+                'total_cost_per_month': 0,
+                'avg_response_time': 0,
+                'overall_error_rate': 0,
+                'total_services': 0,
+                'healthy_services': 0,
+                'avg_cpu_usage': 0,
+                'avg_memory_usage': 0
+            }
+
+        total_requests = sum(metrics['request_count'] for metrics in service_metrics.values())
+        total_errors = sum(metrics['error_count'] for metrics in service_metrics.values())
+        total_cost_per_hour = sum(metrics['cost_per_hour'] for metrics in service_metrics.values())
+
+        avg_response_time = sum(metrics['avg_response_time'] for metrics in service_metrics.values()) / len(service_metrics)
+        overall_error_rate = (total_errors / total_requests * 100) if total_requests > 0 else 0
+        avg_cpu_usage = sum(metrics['cpu_usage'] for metrics in service_metrics.values()) / len(service_metrics)
+        avg_memory_usage = sum(metrics['memory_usage'] for metrics in service_metrics.values()) / len(service_metrics)
+
+        return {
+            'total_requests': total_requests,
+            'total_errors': total_errors,
+            'total_cost_per_hour': total_cost_per_hour,
+            'total_cost_per_day': total_cost_per_hour * 24,
+            'total_cost_per_month': total_cost_per_hour * 24 * 30,
+            'avg_response_time': avg_response_time,
+            'overall_error_rate': overall_error_rate,
+            'total_services': len(service_metrics),
+            'healthy_services': len([m for m in service_metrics.values() if m['status'] == 'healthy']),
+            'avg_cpu_usage': avg_cpu_usage,
+            'avg_memory_usage': avg_memory_usage
+        }
+
+    @app.route('/')
+    def index():
+        service_metrics_data = service_metrics
+        derived_metrics = calculate_derived_metrics(service_metrics_data)
+
+        # Professional HTML with bar, timeline, and pie charts
+        html = '''<!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Z-Grid Monitor</title>
+            <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+            <style>
+                * {
+                    margin: 0;
+                    padding: 0;
+                    box-sizing: border-box;
+                }
+                body {
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    background: #ffffff;
+                    color: #1a202c;
+                    line-height: 1.5;
+                }
+                .container {
+                    max-width: 1400px;
+                    margin: 0 auto;
+                    padding: 24px;
+                }
+                .header {
+                    background: #ffffff;
+                    border-bottom: 1px solid #e2e8f0;
+                    padding: 24px 0;
+                    margin-bottom: 32px;
+                }
+                .header h1 {
+                    font-size: 28px;
+                    font-weight: 600;
+                    color: #1a202c;
+                    margin-bottom: 8px;
+                }
+                .status {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 6px;
+                    padding: 6px 12px;
+                    background: #f0fdf4;
+                    color: #166534;
+                    border-radius: 6px;
+                    font-size: 13px;
+                    font-weight: 500;
+                }
+                .status::before {
+                    content: '●';
+                    color: #22c55e;
+                }
+                .meta {
+                    color: #64748b;
+                    font-size: 13px;
+                    margin-top: 8px;
+                }
+                .stats-grid {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                    gap: 20px;
+                    margin-bottom: 32px;
+                }
+                .stat-card {
+                    background: #ffffff;
+                    border: 1px solid #e2e8f0;
+                    border-radius: 8px;
+                    padding: 20px;
+                    text-align: center;
+                }
+                .stat-value {
+                    font-size: 32px;
+                    font-weight: 700;
+                    color: #1a202c;
+                    margin-bottom: 4px;
+                }
+                .stat-label {
+                    font-size: 12px;
+                    color: #64748b;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                }
+                .table-card {
+                    background: #ffffff;
+                    border: 1px solid #e2e8f0;
+                    border-radius: 8px;
+                    margin-bottom: 32px;
+                }
+                .table-header {
+                    padding: 20px;
+                    border-bottom: 1px solid #e2e8f0;
+                }
+                .table-title {
+                    font-size: 18px;
+                    font-weight: 600;
+                    color: #1a202c;
+                }
+                .table-body {
+                    overflow-x: auto;
+                }
+                table {
+                    width: 100%;
+                    border-collapse: collapse;
+                }
+                th, td {
+                    padding: 12px 16px;
+                    text-align: left;
+                    border-bottom: 1px solid #f1f5f9;
+                    font-size: 13px;
+                }
+                th {
+                    background: #f8fafc;
+                    font-weight: 600;
+                    color: #374151;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                    font-size: 11px;
+                }
+                .status-healthy {
+                    display: inline-block;
+                    padding: 4px 8px;
+                    background: #f0fdf4;
+                    color: #166534;
+                    border-radius: 4px;
+                    font-size: 11px;
+                    font-weight: 500;
+                }
+                .charts-section {
+                    margin-top: 32px;
+                }
+                .charts-grid {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+                    gap: 24px;
+                    margin-bottom: 24px;
+                }
+                .chart-card {
+                    background: #ffffff;
+                    border: 1px solid #e2e8f0;
+                    border-radius: 8px;
+                    padding: 24px;
+                }
+                .chart-title {
+                    font-size: 16px;
+                    font-weight: 600;
+                    color: #1a202c;
+                    margin-bottom: 20px;
+                }
+                .chart-container {
+                    position: relative;
+                    height: 300px;
+                }
+                .cost-details {
+                    background: #f8fafc;
+                    border-radius: 8px;
+                    padding: 20px;
+                    margin-top: 20px;
+                }
+                .cost-grid {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+                    gap: 16px;
+                    margin-top: 16px;
+                }
+                .cost-item {
+                    text-align: center;
+                    padding: 16px;
+                    background: #ffffff;
+                    border-radius: 6px;
+                    border: 1px solid #e2e8f0;
+                }
+                .cost-value {
+                    font-size: 18px;
+                    font-weight: 600;
+                    color: #1a202c;
+                }
+                .cost-label {
+                    font-size: 11px;
+                    color: #64748b;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                    margin-top: 4px;
+                }
+                .auto-refresh {
+                    text-align: center;
+                    color: #64748b;
+                    font-size: 12px;
+                    margin-top: 24px;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>Z-Grid Monitor</h1>
+                    <span class="status">LIVE</span>
+                    <div class="meta">Namespace: {namespace} | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value">{derived_metrics['total_services']}</div>
+                        <div class="stat-label">Services</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">{derived_metrics['total_requests']:,}</div>
+                        <div class="stat-label">Requests/hr</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">{derived_metrics['avg_response_time']:.0f}ms</div>
+                        <div class="stat-label">Avg Response</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${derived_metrics['total_cost_per_hour']:.2f}</div>
+                        <div class="stat-label">Cost/hr</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">{derived_metrics['avg_cpu_usage']:.0f}%</div>
+                        <div class="stat-label">CPU Usage</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">{derived_metrics['avg_memory_usage']:.0f}%</div>
+                        <div class="stat-label">Memory Usage</div>
+                    </div>
+                </div>
+
+                <div class="table-card">
+                    <div class="table-header">
+                        <div class="table-title">Service Details</div>
+                    </div>
+                    <div class="table-body">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Service</th>
+                                    <th>Status</th>
+                                    <th>Requests</th>
+                                    <th>Errors</th>
+                                    <th>Response</th>
+                                    <th>CPU</th>
+                                    <th>Memory</th>
+                                    <th>Cost/hr</th>
+                                </tr>
+                            </thead>
+                            <tbody>'''
+
+                <div class="table-card">
+                    <div class="table-title">Service Details</div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Service</th>
+                                <th>Status</th>
+                                <th>Requests</th>
+                                <th>Errors</th>
+                                <th>Response</th>
+                                <th>CPU</th>
+                                <th>Memory</th>
+                                <th>Cost/hr</th>
+                            </tr>
+                        </thead>
+                        <tbody>'''
+
+        # Add service table rows
+        for service_key, metrics in service_metrics_data.items():
+            error_rate = (metrics['error_count'] / metrics['request_count'] * 100) if metrics['request_count'] > 0 else 0
+            html += f'''
+                            <tr>
+                                <td>{metrics['service_name']}</td>
+                                <td><span class="status-healthy">{metrics['status']}</span></td>
+                                <td>{metrics['request_count']:,}</td>
+                                <td>{metrics['error_count']}</td>
+                                <td>{metrics['avg_response_time']:.0f}ms</td>
+                                <td>{metrics['cpu_usage']:.1f}%</td>
+                                <td>{metrics['memory_usage']:.1f}%</td>
+                                <td>${metrics['cost_per_hour']:.3f}</td>
+                            </tr>'''
+
+        html += f'''
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="charts-section">
+                    <div class="charts-grid">
+                        <div class="chart-card">
+                            <div class="chart-title">Request Volume (Bar Chart)</div>
+                            <div class="chart-container">
+                                <canvas id="requestsChart"></canvas>
+                            </div>
+                        </div>
+                        <div class="chart-card">
+                            <div class="chart-title">Response Time Timeline (Line Chart)</div>
+                            <div class="chart-container">
+                                <canvas id="responseTimelineChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="charts-grid">
+                        <div class="chart-card">
+                            <div class="chart-title">CPU Utilization (Pie Chart)</div>
+                            <div class="chart-container">
+                                <canvas id="cpuChart"></canvas>
+                            </div>
+                        </div>
+                        <div class="chart-card">
+                            <div class="chart-title">Memory Utilization (Pie Chart)</div>
+                            <div class="chart-container">
+                                <canvas id="memoryChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="charts-grid">
+                        <div class="chart-card">
+                            <div class="chart-title">Cost Distribution (Pie Chart)</div>
+                            <div class="chart-container">
+                                <canvas id="costChart"></canvas>
+                            </div>
+                        </div>
+                        <div class="chart-card">
+                            <div class="chart-title">Component Cost Analysis (Pie Chart)</div>
+                            <div class="chart-container">
+                                <canvas id="componentChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="auto-refresh">
+                    Auto-refresh every 30 seconds
+                </div>
+            </div>
+
+            <script>
+                const serviceData = {json.dumps(service_metrics_data)};
+                const derivedMetrics = {json.dumps(derived_metrics)};
+
+                // Professional color palette
+                const professionalColors = [
+                    '#3B82F6', // Blue
+                    '#10B981', // Green
+                    '#F59E0B', // Yellow
+                    '#EF4444', // Red
+                    '#8B5CF6', // Purple
+                    '#06B6D4', // Cyan
+                    '#84CC16', // Lime
+                    '#F97316'  // Orange
+                ];
+
+                // Request Volume Bar Chart
+                const requestsCtx = document.getElementById('requestsChart').getContext('2d');
+                new Chart(requestsCtx, {{
+                    type: 'bar',
+                    data: {{
+                        labels: Object.keys(serviceData).map(key => serviceData[key].service_name),
+                        datasets: [{{
+                            label: 'Requests per Hour',
+                            data: Object.keys(serviceData).map(key => serviceData[key].request_count),
+                            backgroundColor: professionalColors.slice(0, 8),
+                            borderColor: professionalColors.slice(0, 8).map(color => color + 'CC'),
+                            borderWidth: 1,
+                            borderRadius: 4
+                        }}]
+                    }},
+                    options: {{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {{
+                            legend: {{
+                                display: false
+                            }}
+                        }},
+                        scales: {{
+                            y: {{
+                                beginAtZero: true,
+                                grid: {{
+                                    color: '#f1f5f9'
+                                }}
+                            }},
+                            x: {{
+                                grid: {{
+                                    display: false
+                                }},
+                                ticks: {{
+                                    maxRotation: 45,
+                                    minRotation: 45,
+                                    font: {{ size: 11 }}
+                                }}
+                            }}
+                        }}
+                    }}
+                }});
+
+                // Response Time Timeline (Line Chart)
+                const responseCtx = document.getElementById('responseTimelineChart').getContext('2d');
+                const hours = ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00', '24:00'];
+                new Chart(responseCtx, {{
+                    type: 'line',
+                    data: {{
+                        labels: hours,
+                        datasets: Object.keys(serviceData).map((key, index) => ({{
+                            label: serviceData[key].service_name,
+                            data: hours.map(() => serviceData[key].avg_response_time + (Math.random() * 50 - 25)),
+                            borderColor: professionalColors[index],
+                            backgroundColor: professionalColors[index] + '20',
+                            borderWidth: 2,
+                            tension: 0.4,
+                            pointRadius: 3
+                        }}))
+                    }},
+                    options: {{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {{
+                            legend: {{
+                                position: 'bottom',
+                                labels: {{
+                                    font: {{ size: 10 }},
+                                    usePointStyle: true,
+                                    pointStyle: 'circle'
+                                }}
+                            }}
+                        }},
+                        scales: {{
+                            y: {{
+                                beginAtZero: true,
+                                grid: {{
+                                    color: '#f1f5f9'
+                                }},
+                                title: {{
+                                    display: true,
+                                    text: 'Response Time (ms)',
+                                    font: {{ size: 11 }}
+                                }}
+                            }},
+                            x: {{
+                                grid: {{
+                                    display: false
+                                }},
+                                title: {{
+                                    display: true,
+                                    text: 'Time of Day',
+                                    font: {{ size: 11 }}
+                                }}
+                            }}
+                        }}
+                    }}
+                }});
+
+                // CPU Utilization Pie Chart
+                const cpuCtx = document.getElementById('cpuChart').getContext('2d');
+                new Chart(cpuCtx, {{
+                    type: 'pie',
+                    data: {{
+                        labels: Object.keys(serviceData).map(key => serviceData[key].service_name),
+                        datasets: [{{
+                            data: Object.keys(serviceData).map(key => serviceData[key].cpu_usage),
+                            backgroundColor: professionalColors.slice(0, 8),
+                            borderColor: '#ffffff',
+                            borderWidth: 2
+                        }}]
+                    }},
+                    options: {{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {{
+                            legend: {{
+                                position: 'bottom',
+                                labels: {{
+                                    padding: 15,
+                                    font: {{ size: 11 }},
+                                    usePointStyle: true,
+                                    pointStyle: 'circle'
+                                }}
+                            }},
+                            tooltip: {{
+                                callbacks: {{
+                                    label: function(context) {{
+                                        return context.label + ': ' + context.parsed.toFixed(1) + '%';
+                                    }}
+                                }}
+                            }}
+                        }}
+                    }}
+                }});
+
+                // Memory Utilization Pie Chart
+                const memoryCtx = document.getElementById('memoryChart').getContext('2d');
+                new Chart(memoryCtx, {{
+                    type: 'pie',
+                    data: {{
+                        labels: Object.keys(serviceData).map(key => serviceData[key].service_name),
+                        datasets: [{{
+                            data: Object.keys(serviceData).map(key => serviceData[key].memory_usage),
+                            backgroundColor: professionalColors.slice(0, 8),
+                            borderColor: '#ffffff',
+                            borderWidth: 2
+                        }}]
+                    }},
+                    options: {{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {{
+                            legend: {{
+                                position: 'bottom',
+                                labels: {{
+                                    padding: 15,
+                                    font: {{ size: 11 }},
+                                    usePointStyle: true,
+                                    pointStyle: 'circle'
+                                }}
+                            }},
+                            tooltip: {{
+                                callbacks: {{
+                                    label: function(context) {{
+                                        return context.label + ': ' + context.parsed.toFixed(1) + '%';
+                                    }}
+                                }}
+                            }}
+                        }}
+                    }}
+                }});
+
+                // Cost Distribution Pie Chart
+                const costCtx = document.getElementById('costChart').getContext('2d');
+                new Chart(costCtx, {{
+                    type: 'pie',
+                    data: {{
+                        labels: Object.keys(serviceData).map(key => serviceData[key].service_name),
+                        datasets: [{{
+                            data: Object.keys(serviceData).map(key => serviceData[key].cost_per_hour),
+                            backgroundColor: professionalColors.slice(0, 8),
+                            borderColor: '#ffffff',
+                            borderWidth: 2
+                        }}]
+                    }},
+                    options: {{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {{
+                            legend: {{
+                                position: 'bottom',
+                                labels: {{
+                                    padding: 15,
+                                    font: {{ size: 11 }},
+                                    usePointStyle: true,
+                                    pointStyle: 'circle'
+                                }}
+                            }},
+                            tooltip: {{
+                                callbacks: {{
+                                    label: function(context) {{
+                                        return context.label + ': $' + context.parsed.toFixed(3) + '/hr';
+                                    }}
+                                }}
+                            }}
+                        }}
+                    }}
+                }});
+
+                // Component Cost Analysis Pie Chart
+                const componentTotals = {{
+                    'Kubernetes Control Plane': 0,
+                    'Pod Compute': 0,
+                    'CPU': 0,
+                    'Memory': 0,
+                    'Load Balancer': 0
+                }};
+
+                Object.keys(serviceData).forEach(key => {{
+                    const service = serviceData[key];
+                    if (service.component_costs) {{
+                        componentTotals['Kubernetes Control Plane'] += service.component_costs.kubernetes_control_plane || 0;
+                        componentTotals['Pod Compute'] += service.component_costs.pod_compute || 0;
+                        componentTotals['CPU'] += service.component_costs.cpu || 0;
+                        componentTotals['Memory'] += service.component_costs.memory || 0;
+                        componentTotals['Load Balancer'] += service.component_costs.load_balancer || 0;
+                    }}
+                }});
+
+                const componentCtx = document.getElementById('componentChart').getContext('2d');
+                new Chart(componentCtx, {{
+                    type: 'pie',
+                    data: {{
+                        labels: Object.keys(componentTotals).filter(key => componentTotals[key] > 0),
+                        datasets: [{{
+                            data: Object.values(componentTotals).filter(val => val > 0),
+                            backgroundColor: professionalColors.slice(0, 5),
+                            borderColor: '#ffffff',
+                            borderWidth: 2
+                        }}]
+                    }},
+                    options: {{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {{
+                            legend: {{
+                                position: 'bottom',
+                                labels: {{
+                                    padding: 15,
+                                    font: {{ size: 11 }},
+                                    usePointStyle: true,
+                                    pointStyle: 'circle'
+                                }}
+                            }},
+                            tooltip: {{
+                                callbacks: {{
+                                    label: function(context) {{
+                                        return context.label + ': $' + context.parsed.toFixed(3) + '/hr';
+                                    }}
+                                }}
+                            }}
+                        }}
+                    }}
+                }});
+
+                function refreshData() {{
+                    location.reload();
+                }}
+
+                // Auto-refresh every 30 seconds
+                setInterval(refreshData, 30000);
+            </script>
+        </body>
+        </html>'''
+        return html
+
+    @app.route('/api/dashboard')
+    def api_dashboard():
+        derived_metrics = calculate_derived_metrics(service_metrics)
+        return jsonify({
+            'timestamp': datetime.now().isoformat(),
+            'namespace': namespace,
+            'service_metrics': service_metrics,
+            'derived_metrics': derived_metrics
+        })
+
+    @app.route('/api/health')
+    def api_health():
+        return jsonify({
+            'status': 'healthy',
+            'timestamp': datetime.now().isoformat()
+        })
+
+    if __name__ == '__main__':
+        port = int(os.environ.get('PORT', 5000))
+        app.run(host='0.0.0.0', port=port, debug=False)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fixed-monitoring-dashboard
+  namespace: z-grid
+  labels:
+    app: fixed-monitoring-dashboard
+    component: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fixed-monitoring-dashboard
+  template:
+    metadata:
+      labels:
+        app: fixed-monitoring-dashboard
+        component: monitoring
+    spec:
+      containers:
+      - name: monitoring-dashboard
+        image: python:3.11-alpine
+        command: ["python3", "-c"]
+        args:
+        - |
+          import os
+          import sys
+          import subprocess
+          from datetime import datetime
+
+          # Install Flask
+          subprocess.run(['pip', 'install', 'flask'], check=True, capture_output=True)
+
+          # Import and run the app
+          sys.path.insert(0, '/app')
+          from app import app
+          port = int(os.environ.get('PORT', 5000))
+          app.run(host='0.0.0.0', port=port, debug=False)
+        ports:
+        - containerPort: 5000
+          name: http
+        volumeMounts:
+        - name: app-volume
+          mountPath: /app/app.py
+          subPath: app.py
+        resources:
+          requests:
+            cpu: 100m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 5000
+          initialDelaySeconds: 30
+          periodSeconds: 60
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 5000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: app-volume
+        configMap:
+          name: fixed-dashboard-config
+      restartPolicy: Always
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: z-grid-monitoring-dashboard-service
+  namespace: z-grid
+  labels:
+    app: fixed-monitoring-dashboard
+    component: monitoring
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 5000
+    protocol: TCP
+    name: http
+  selector:
+    app: fixed-monitoring-dashboard

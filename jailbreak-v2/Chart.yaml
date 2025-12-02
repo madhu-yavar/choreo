@@ -1,0 +1,33 @@
+apiVersion: v2
+name: jailbreak-distilbert
+description: "Production-ready jailbreak detection service with 97.6% accuracy using optimized DistilBERT"
+type: application
+version: 2.0.0
+appVersion: "2.0.0"
+
+keywords:
+  - jailbreak-detection
+  - content-moderation
+  - machine-learning
+  - distilbert
+  - nlp
+  - security
+
+home: https://github.com/anthropics/claude-code
+sources:
+  - https://github.com/anthropics/claude-code
+  - jailbreak_distilbert_1035data/
+
+maintainers:
+  - name: Z-Grid Team
+    email: team@zgrid.com
+
+annotations:
+  category: Security
+  licenses: MIT
+  model_accuracy: "97.6%"
+  model_f1_score: "90.9%"
+  training_data_size: "1039"
+  test_results: "100% detection on 18 sophisticated cases"
+  deployment_timestamp: "2025-11-24T23:00:00Z"
+  commit_hash: "937b175"

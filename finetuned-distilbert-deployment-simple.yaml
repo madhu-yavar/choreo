@@ -1,0 +1,149 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finetuned-distilbert-jailbreak
+  namespace: z-grid
+  labels:
+    app: finetuned-distilbert-jailbreak
+    service-type: content-moderation
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: finetuned-distilbert-jailbreak
+  template:
+    metadata:
+      labels:
+        app: finetuned-distilbert-jailbreak
+        service-type: content-moderation
+        version: v1
+    spec:
+      initContainers:
+      - name: copy-code
+        image: busybox:1.35
+        command: ["sh", "-c"]
+        args:
+        - |
+          echo "Copying application code..."
+          cp /config/code/jailbreak_service_improved_ml.py /app/
+          echo "Code copied successfully"
+        volumeMounts:
+        - name: app-volume
+          mountPath: /app
+        - name: code-config
+          mountPath: /config/code
+      - name: setup-python
+        image: python:3.9-slim
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          echo "Setting up Python environment..."
+          cd /app
+          pip install --no-cache-dir \
+            torch==2.0.1 \
+            transformers==4.30.2 \
+            scikit-learn==1.3.0 \
+            fastapi==0.104.1 \
+            uvicorn[standard]==0.24.0 \
+            pydantic==2.5.0 \
+            prometheus-client==0.19.0 \
+            numpy==1.24.3 \
+            --target /app/python-lib
+          echo "Python dependencies installed successfully"
+        volumeMounts:
+        - name: app-volume
+          mountPath: /app
+      containers:
+      - name: finetuned-distilbert-jailbreak
+        image: python:3.9-slim
+        command: ["python"]
+        args: ["jailbreak_service_improved_ml.py"]
+        workingDir: /app
+        env:
+        - name: PYTHONPATH
+          value: "/app/python-lib:/usr/lib/python3.9/site-packages"
+        - name: SERVICE_NAME
+          value: "finetuned-distilbert-jailbreak"
+        - name: SERVICE_PORT
+          value: "8002"
+        - name: SERVICE_HOST
+          value: "0.0.0.0"
+        - name: MODEL_NAME
+          value: "distilbert-base-uncased"
+        - name: ML_CONFIDENCE_HIGH
+          value: "0.85"
+        - name: ML_CONFIDENCE_MEDIUM
+          value: "0.70"
+        - name: ML_CONFIDENCE_LOW
+          value: "0.55"
+        - name: RULE_BOOST_FACTOR
+          value: "0.25"
+        - name: DEVICE
+          value: "cpu"
+        - name: MAX_CONTENT_LENGTH
+          value: "8192"
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: ENABLE_METRICS
+          value: "true"
+        volumeMounts:
+        - name: app-volume
+          mountPath: /app
+        - name: config-volume
+          mountPath: /app/config
+          readOnly: true
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8002
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 30
+      volumes:
+      - name: app-volume
+        emptyDir: {}
+      - name: config-volume
+        configMap:
+          name: finetuned-distilbert-jailbreak-config
+      - name: code-config
+        configMap:
+          name: finetuned-distilbert-jailbreak-code-fixed
+      nodeSelector:
+        agentpool: agentpool
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - finetuned-distilbert-jailbreak
+              topologyKey: kubernetes.io/hostname

@@ -1,0 +1,19 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gateway-v2-load-test-working
+  namespace: z-grid
+spec:
+  parallelism: 1
+  completions: 1
+  template:
+    metadata:
+      labels:
+        app: gateway-v2-load-test-working
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: load-test
+        image: appropriate/curl
+        command: ["/bin/sh"]
+        args: ["-c", "echo Starting load test... && while true; do curl -s -X POST -H 'Content-Type: application/json' -H 'X-API-Key: supersecret123' -d '{\"text\":\"Hello world\"}' http://gateway-v2-service.z-grid:8008/validate; echo 'Request sent at '$(date); sleep 60; done"]

@@ -1,0 +1,41 @@
+[
+  { "id": "AWS_ACCESS_KEY_ID", "category": "CLOUD", "type": "regex", "pattern": "\\b(A3T|AKIA|ASIA|AGPA|AIDA)[A-Z0-9]{16}\\b", "severity": 5 },
+  { "id": "AWS_SECRET_ACCESS_KEY", "category": "CLOUD", "type": "regex", "pattern": "\\b(?i:aws)?[_-]?(secret|access)?[_-]?key['\"]?\\s*[:=]\\s*([A-Za-z0-9/+]{40})\\b", "severity": 5 },
+
+  { "id": "GCP_SERVICE_ACCOUNT", "category": "CLOUD", "type": "regex", "pattern": "\"type\"\\s*:\\s*\"service_account\"", "severity": 5 },
+  { "id": "GCP_PRIVATE_KEY", "category": "CLOUD", "type": "regex", "pattern": "-----BEGIN PRIVATE KEY-----[\\s\\S]+?-----END PRIVATE KEY-----", "severity": 5 },
+
+  { "id": "AZURE_CONN_STRING", "category": "CLOUD", "type": "regex", "pattern": "(?i)DefaultEndpointsProtocol=.+;AccountName=.+;AccountKey=[A-Za-z0-9+/=]{20,}", "severity": 5 },
+  { "id": "AZURE_SAS", "category": "CLOUD", "type": "regex", "pattern": "(?i)sv=\\d{4}-\\d{2}-\\d{2}.*&sig=[A-Za-z0-9%+/=]{10,}", "severity": 4 },
+
+  { "id": "SLACK_TOKEN", "category": "SAAS", "type": "regex", "pattern": "\\bxox[baprs]-[A-Za-z0-9-]{10,}\\b", "severity": 5 },
+  { "id": "SLACK_WEBHOOK", "category": "SAAS", "type": "regex", "pattern": "https://hooks\\.slack\\.com/services/[A-Za-z0-9/_-]{20,}", "severity": 4 },
+
+  { "id": "GITHUB_PAT", "category": "DEV", "type": "regex", "pattern": "\\bgh[pousr]_[A-Za-z0-9]{36,}\\b", "severity": 5 },
+  { "id": "GITHUB_PAT_FINE_TUNED", "category": "DEV", "type": "regex", "pattern": "\\bgh[pousr]_[A-Za-z0-9]{1,255}\\b", "severity": 5 },
+  { "id": "GITHUB_OAUTH", "category": "DEV", "type": "regex", "pattern": "\\bgho_[A-Za-z0-9]{36,}\\b", "severity": 5 },
+  { "id": "GITHUB_APP_TOKEN", "category": "DEV", "type": "regex", "pattern": "\\bv1\\.[A-Za-z0-9]{64,}\\b", "severity": 5 },
+  { "id": "GITHUB_REFRESH_TOKEN", "category": "DEV", "type": "regex", "pattern": "\\bghr_[A-Za-z0-9_]{1,255}\\b", "severity": 5 },
+
+  { "id": "OPENAI_KEY", "category": "SAAS", "type": "regex", "pattern": "\\bsk-[A-Za-z0-9]{20,}\\b", "severity": 5 },
+  { "id": "OPENAI_KEY_V2", "category": "SAAS", "type": "regex", "pattern": "\\bsk-proj-[A-Za-z0-9_-]{8,}\\b", "severity": 5 },
+  { "id": "OPENAI_ORG_KEY", "category": "SAAS", "type": "regex", "pattern": "\\borg-[A-Za-z0-9_-]{8,}\\b", "severity": 5 },
+  { "id": "OPENAI_ORG_KEY_NEW", "category": "SAAS", "type": "regex", "pattern": "\\borg-[A-Za-z0-9_-]{24}\\b", "severity": 5 },
+  { "id": "OPENAI_PROJECT_KEY", "category": "SAAS", "type": "regex", "pattern": "\\bsk-proj-[A-Za-z0-9_-]{32}\\b", "severity": 5 },
+  { "id": "OPENAI_LIVE_KEY", "category": "SAAS", "type": "regex", "pattern": "\\bsk-live-[A-Za-z0-9_-]{20,}\\b", "severity": 5 },
+  { "id": "OPENAI_TEST_KEY", "category": "SAAS", "type": "regex", "pattern": "\\bsk-test-[A-Za-z0-9_-]{20,}\\b", "severity": 5 },
+  { "id": "OPENAI_SERVICE_KEY", "category": "SAAS", "type": "regex", "pattern": "\\bsk-service-[A-Za-z0-9_-]{20,}\\b", "severity": 5 },
+  { "id": "OPENAI_BETA_KEY", "category": "SAAS", "type": "regex", "pattern": "\\bsk-beta-[A-Za-z0-9_-]{20,}\\b", "severity": 5 },
+  { "id": "STRIPE_SECRET", "category": "PAYMENTS", "type": "regex", "pattern": "\\bsk_(live|test)_[A-Za-z0-9]{20,}\\b", "severity": 5 },
+  { "id": "STRIPE_PUBLISHABLE", "category": "PAYMENTS", "type": "regex", "pattern": "\\bpk_(live|test)_[A-Za-z0-9]{20,}\\b", "severity": 2 },
+
+  { "id": "TWILIO_AUTH", "category": "COMM", "type": "regex", "pattern": "_[_-]?auth[_-]?token['\"]?\\s*[:=]\\s*[A-Za-z0-9]{20,}\\b", "severity": 4 },
+  { "id": "SENDGRID", "category": "COMM", "type": "regex", "pattern": "\\bSG\\.[A-Za-z0-9_-]{16,}\\.\\w{16,}\\b", "severity": 4 },
+
+  { "id": "TELEGRAM_BOT_TOKEN", "category": "COMM", "type": "regex", "pattern": "\\b\\d{8,10}:[A-Za-z0-9_-]{35}\\b", "severity": 4 },
+
+  { "id": "JWT", "category": "AUTH", "type": "regex", "pattern": "\\b[\\w-]{10,}\\.([\\w-]{10,})\\.([\\w-]{8,})\\b", "severity": 3 },
+
+  { "id": "SSH_PRIVATE_KEY", "category": "DEV", "type": "regex", "pattern": "-----BEGIN OPENSSH PRIVATE KEY-----[\\s\\S]+?-----END OPENSSH PRIVATE KEY-----", "severity": 5 },
+  { "id": "RSA_PRIVATE_KEY", "category": "DEV", "type": "regex", "pattern": "-----BEGIN RSA PRIVATE KEY-----[\\s\\S]+?-----END RSA PRIVATE KEY-----", "severity": 5 }
+]

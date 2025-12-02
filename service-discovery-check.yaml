@@ -1,0 +1,143 @@
+---
+# Service Discovery and Health Check Configuration
+# Verifies all 11 services are running and properly named
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: zgrid-service-discovery
+  namespace: z-grid
+spec:
+  template:
+    spec:
+      containers:
+      - name: service-discovery
+        image: bitnami/kubectl:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          echo "=================================================================="
+          echo "🔍 Z-Grid Service Discovery & Health Verification"
+          echo "=================================================================="
+          echo ""
+
+          # Expected services configuration
+          declare -A expected_services=(
+            ["gateway-service-yavar"]="8008"
+            ["pii-service-yavar"]="8000"
+            ["tox-service-yavar"]="8001"
+            ["jail-service-yavar"]="8002"
+            ["policy-service-external"]="8003"
+            ["ban-service-yavar"]="8004"
+            ["secrets-service-yavar"]="8005"
+            ["format-service-yavar"]="8006"
+            ["gibberish-service-yavar"]="8007"
+            ["config-service-yavar"]="8009"
+            ["bias-service-yavar"]="8012"
+            ["simple-bias-service"]="8013"
+          )
+
+          # Check all services
+          echo "🔍 Checking Kubernetes Services..."
+          echo ""
+
+          total_services=0
+          found_services=0
+
+          for service in "${!expected_services[@]}"; do
+            expected_port=${expected_services[$service]}
+            total_services=$((total_services + 1))
+
+            echo -n "Checking service: $service (port $expected_port)... "
+
+            if kubectl get service $service -n z-grid >/dev/null 2>&1; then
+              actual_port=$(kubectl get service $service -n z-grid -o jsonpath='{.spec.ports[0].port}')
+
+              if [ "$actual_port" = "$expected_port" ]; then
+                echo "✅ FOUND (port $actual_port)"
+                found_services=$((found_services + 1))
+              else
+                echo "⚠️  FOUND but wrong port (expected $expected_port, got $actual_port)"
+              fi
+
+              # Check endpoints
+              echo -n "  Endpoints: "
+              kubectl get endpoints $service -n z-grid -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null || echo "No endpoints"
+              echo ""
+            else
+              echo "❌ NOT FOUND"
+            fi
+          done
+
+          echo ""
+          echo "📊 Service Discovery Summary:"
+          echo "Expected services: $total_services"
+          echo "Found services: $found_services"
+          echo "Missing services: $((total_services - found_services))"
+
+          if [ $found_services -eq $total_services ]; then
+            echo "🎉 All services found!"
+          else
+            echo "⚠️  Some services are missing"
+          fi
+
+          echo ""
+          echo "🔍 Checking Pods..."
+          echo ""
+
+          # Check all pods
+          kubectl get pods -n z-grid -o custom-columns=NAME:.metadata.name,STATUS:.status.phase,READY:.status.readyReplicas,RESTARTS:.status.containerStatuses[*].restartCount
+
+          echo ""
+          echo "🔍 Checking Ingress..."
+          echo ""
+
+          # Check ingress configuration
+          if kubectl get ingress zgrid-all-services-ingress -n z-grid >/dev/null 2>&1; then
+            echo "✅ Unified ingress found"
+            kubectl get ingress zgrid-all-services-ingress -n z-grid -o jsonpath='{.spec.rules[*].host}' | tr ' ' '\n' | sort | uniq
+          else
+            echo "❌ Unified ingress not found"
+          fi
+
+          echo ""
+          echo "🔍 Checking SSL Certificate..."
+          echo ""
+
+          # Check SSL certificate
+          if kubectl get secret zgrid-wildcard-tls -n z-grid >/dev/null 2>&1; then
+            echo "✅ SSL certificate found"
+          else
+            echo "❌ SSL certificate not found"
+          fi
+
+          echo ""
+          echo "🔍 Checking Load Balancer IP..."
+          echo ""
+
+          # Get external IP
+          lb_ip=$(kubectl get service ingress-nginx-controller -n ingress-nginx -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+          if [ ! -z "$lb_ip" ]; then
+            echo "✅ Load Balancer IP: $lb_ip"
+            echo "Expected IP: 20.242.183.197"
+            if [ "$lb_ip" = "20.242.183.197" ]; then
+              echo "✅ IP matches expected configuration"
+            else
+              echo "⚠️  IP mismatch - check DNS configuration"
+            fi
+          else
+            echo "❌ Load Balancer IP not found"
+          fi
+
+          echo ""
+          echo "=================================================================="
+          echo "Service discovery complete!"
+          echo "=================================================================="
+
+          # Exit with error if services are missing
+          if [ $found_services -ne $total_services ]; then
+            echo "❌ Service discovery failed - missing services"
+            exit 1
+          fi
+      restartPolicy: OnFailure
+  backoffLimit: 2

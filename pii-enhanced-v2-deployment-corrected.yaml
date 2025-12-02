@@ -1,0 +1,539 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pii-enhanced-v2-deployment
+  namespace: z-grid
+  labels:
+    app: pii-enhanced-v2
+    version: "v2.0"
+    component: pii-detection
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: pii-enhanced-v2
+  template:
+    metadata:
+      labels:
+        app: pii-enhanced-v2
+        version: "v2.0"
+        component: pii-detection
+    spec:
+      containers:
+      - name: pii-enhanced-v2
+        image: python:3.11-slim
+        ports:
+        - containerPort: 8000
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: ENVIRONMENT
+          value: "kubernetes-production"
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: pii-secrets
+              key: PII_API_KEY
+              optional: true
+        - name: ENABLE_INDIAN_TAX_IDS
+          value: "true"
+        - name: ENABLE_Gliner_SUPPORT
+          value: "true"
+        - name: PRECISION_REDUCTION_FACTOR
+          value: "0.02"
+        - name: GLINER_MODEL_PATH
+          value: "https://huggingface.co/urchade/gliner_base/resolve/main/gliner_base.tar.gz"
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          set -e
+          echo "🚀 Initializing Enhanced PII Service V2.0..."
+
+          # Install system dependencies
+          apt-get update && apt-get install -y \
+            gcc \
+            g++ \
+            curl \
+            wget \
+            git \
+            && rm -rf /var/lib/apt/lists/*
+
+          # Install Python dependencies
+          pip install --no-cache-dir \
+            fastapi==0.104.1 \
+            uvicorn[standard]==0.24.0 \
+            presidio-analyzer==2.2.355 \
+            presidio-anonymizer==2.2.355 \
+            spacy==3.7.2 \
+            python-multipart==0.0.6 \
+            pydantic==2.5.0 \
+            pydantic-settings==2.1.0 \
+            python-dotenv==1.0.0 \
+            gliner==0.2.5 \
+            torch==2.1.0 \
+            transformers==4.35.2 \
+            huggingface-hub==0.19.4 \
+            pillow==10.1.0 \
+            python-jose[cryptography]==3.3.0 \
+            passlib[bcrypt]==1.7.4 \
+            boto3==1.34.0 \
+            botocore==1.34.0 \
+            scikit-learn==1.3.2 \
+            pandas==2.1.3 \
+            numpy==1.24.4 \
+            requests==2.31.0
+
+          # Download spaCy model separately
+          python -m spacy download en_core_web_sm
+
+          # Create the enhanced PII service application
+          cat > /app/app.py << 'EOAPP'
+          #!/usr/bin/env python3
+          """
+          Enhanced PII Detection Service V2.0
+          Comprehensive PII detection with Presidio + GLiNER + Indian Tax ID Support
+          Features: 25+ Entity Types + Indian Tax IDs (PAN, GSTIN, Aadhaar, Passport)
+          """
+
+          import os
+          import json
+          import re
+          import logging
+          import asyncio
+          from typing import Dict, Any, List, Optional
+          from datetime import datetime
+          import traceback
+
+          from fastapi import FastAPI, HTTPException, Security, Request, status
+          from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+          from fastapi.middleware.cors import CORSMiddleware
+          from fastapi.responses import JSONResponse
+          from pydantic import BaseModel, Field
+          import uvicorn
+
+          # Presidio imports
+          from presidio_analyzer import AnalyzerEngine, RecognizerRegistry
+          from presidio_anonymizer import AnonymizerEngine
+          from presidio_anonymizer.entities import RecognizerResult, OperatorConfig
+
+          # Initialize FastAPI app
+          app = FastAPI(
+              title="Enhanced PII Detection Service V2.0",
+              description="Comprehensive PII detection with Presidio + GLiNER + Indian Tax ID Support",
+              version="2.0.0",
+              docs_url="/docs",
+              redoc_url="/redoc"
+          )
+
+          # Configure CORS
+          app.add_middleware(
+              CORSMiddleware,
+              allow_origins=["*"],
+              allow_credentials=True,
+              allow_methods=["*"],
+              allow_headers=["*"],
+          )
+
+          # Security
+          security = HTTPBearer(auto_error=False)
+          API_KEY = os.getenv("API_KEY", "zgrid-pii-enhanced-v2-2024")
+
+          # Global variables
+          analyzer_engine = None
+          anonymizer_engine = None
+          start_time = datetime.now()
+
+          # Request/Response Models
+          class PIIValidationRequest(BaseModel):
+              text: str = Field(..., min_length=1, max_length=10000, description="Text to analyze for PII")
+              user_id: Optional[str] = Field(None, max_length=100, description="User identifier for tracking")
+              session_id: Optional[str] = Field(None, max_length=100, description="Session identifier for tracking")
+              context: Optional[str] = Field(None, max_length=500, description="Additional context for PII detection")
+              language: Optional[str] = Field("en", description="Language code for text analysis")
+
+          class PIIEntity(BaseModel):
+              entity_type: str = Field(..., description="Type of PII entity detected")
+              value: str = Field(..., description="The actual PII value detected")
+              confidence_score: float = Field(..., ge=0.0, le=1.0, description="Confidence score (0-1)")
+              start_index: int = Field(..., ge=0, description="Start index of PII in text")
+              end_index: int = Field(..., ge=0, description="End index of PII in text")
+              detection_method: str = Field(..., description="Method used for detection")
+
+          class PIIValidationResponse(BaseModel):
+              is_pii_present: bool = Field(..., description="Whether any PII was detected")
+              total_pii_entities: int = Field(..., description="Total number of PII entities detected")
+              pii_entities: List[PIIEntity] = Field(default_factory=list, description="List of detected PII entities")
+              anonymized_text: Optional[str] = Field(None, description="Text with PII anonymized")
+              analysis_metadata: Dict[str, Any] = Field(default_factory=dict, description="Metadata about the analysis")
+              processing_time_ms: float = Field(..., description="Total processing time in milliseconds")
+
+          class HealthResponse(BaseModel):
+              status: str
+              timestamp: str
+              version: str
+              service_name: str
+              environment: str
+              uptime_seconds: float
+              dependencies: Dict[str, str]
+
+          # Enhanced recognizers module
+          def register_enhanced_entities_v2():
+              """Register enhanced V2 PII entities with Presidio including Indian tax IDs."""
+              print("Registering Enhanced PII V2 recognizers with Indian tax ID support...")
+
+              try:
+                  global analyzer_engine
+                  if analyzer_engine is None:
+                      analyzer_engine = AnalyzerEngine()
+
+                  registry = analyzer_engine.registry
+
+                  # Indian GSTIN patterns (V2 Enhanced)
+                  from presidio_analyzer import PatternRecognizer, Pattern
+
+                  indian_gstin_enhanced_v2 = PatternRecognizer(
+                      supported_entity="IN_GSTIN",
+                      name="indian_gstin_enhanced_v2",
+                      patterns=[
+                          Pattern("gstin_standard_v2", r"\\b\\d{2}[A-Z]{3}[A-Z0-9]{5}[A-Z0-9]\\d[Z][A-Z0-9]\\d\\b", 0.95),
+                          Pattern("gstin_with_prefix_v2", r"\\b(?:GSTIN|GST|GSTIN:)?\\s*\\d{2}[A-Z]{3}[A-Z0-9]{5}[A-Z0-9]\\d[Z][A-Z0-9]\\d\\b", 0.9),
+                          Pattern("gstin_context_v2", r"\\b(?:Goods\\s+and\\s+Services\\s+Tax|GST|GSTIN|Tax\\s+Identification\\s+Number)?\\s*(?:No\\.?|#)?\\s*\\d{15}\\b", 0.85),
+                          Pattern("gstin_state_specific_v2", r"\\b(?:07|09|19|27|29|30|36|37)[A-Z]{3}[A-Z0-9]{5}[A-Z0-9]\\d[Z][A-Z0-9]\\d\\b", 0.95),
+                      ],
+                      context=["gstin", "gst", "tax", "goods", "services", "identification", "number", "registration", "business", "company", "india"]
+                  )
+
+                  # Indian PAN patterns (V2 Enhanced)
+                  indian_pan_enhanced_v2 = PatternRecognizer(
+                      supported_entity="IN_PAN",
+                      name="indian_pan_enhanced_v2",
+                      patterns=[
+                          Pattern("pan_standard_format_v2", r"\\b[A-Z]{5}[0-9]{4}[A-Z]\\b", 0.98),
+                          Pattern("pan_with_card_prefix_v2", r"\\b(?:PAN|PANCARD|PAN\\s+CARD)?\\s*#?\\s*[A-Z]{5}[0-9]{4}[A-Z]\\b", 0.95),
+                          Pattern("pan_with_context_v2", r"\\b(?:Permanent\\s+Account\\s+Number|Permanent\\s+Account|PAN|PANCARD)?\\s*(?:No\\.?|#)?\\s*[A-Z]{5}[0-9]{4}[A-Z]\\b", 0.92),
+                          Pattern("pan_tax_related_v2", r"\\b(?:PAN\\s+No\\.|Tax\\s+Account\\s+No\\.|Income\\s+Tax\\s+PAN|Permanent\\s+Account\\s+No\\.)\\s*[A-Z]{5}[0-9]{4}[A-Z]\\b", 0.95),
+                      ],
+                      context=["pan", "tax", "income", "account", "number", "identification", "id", "permanent", "card", "financial", "banking", "demat", "investor", "business", "india"]
+                  )
+
+                  # Indian Aadhaar patterns (V2 Enhanced)
+                  indian_aadhaar_enhanced_v2 = PatternRecognizer(
+                      supported_entity="IN_AADHAAR",
+                      name="indian_aadhaar_enhanced_v2",
+                      patterns=[
+                          Pattern("aadhaar_12_digit_v2", r"\\b\\d{12}\\b", 0.95),
+                          Pattern("aadhaar_with_spaces_v2", r"\\b\\d{4}\\s\\d{4}\\s\\d{4}\\b", 0.9),
+                          Pattern("aadhaar_with_hyphens_v2", r"\\b\\d{4}-\\d{4}-\\d{4}\\b", 0.9),
+                          Pattern("aadhaar_verification_v2", r"\\b(?:AADHAAR|Aadhaar|Aadhaar\\s+No\\.|Aadhaar\\s+Card|Aadhaar\\s+Number|Aadhaar\\s+ID|UIDAI)\\s*(?:No\\.?|#)?\\s*\\d{12}\\b", 0.98),
+                      ],
+                      context=["aadhaar", "uidai", "identification", "id", "kyc", "verification", "government", "citizen", "national", "digital", "mobile", "india"]
+                  )
+
+                  # Indian Passport patterns (V2 Enhanced)
+                  indian_passport_enhanced_v2 = PatternRecognizer(
+                      supported_entity="IN_PASSPORT",
+                      name="indian_passport_enhanced_v2",
+                      patterns=[
+                          Pattern("passport_standard_v2", r"\\bP\\d{7}[A-Z]\\b", 0.95),
+                          Pattern("passport_with_prefix_v2", r"\\b(?:PASSPORT|PASSPORT#|INDIAN\\s+PASSPORT|INDIA\\s+PASSPORT)?\\s*(?:NO\\.?|#)?\\s*[P]\\d{7}[A-Z]\\b", 0.9),
+                          Pattern("passport_with_context_v2", r"\\b(?:Passport\\s+No\\.|Indian\\s+Passport|Travel\\s+Document|Immigration\\s+Document)\\s*[P]\\d{7}[A-Z]\\b", 0.85),
+                      ],
+                      context=["passport", "travel", "india", "immigration", "consular", "embassy", "government", "document", "identification"]
+                  )
+
+                  # Register all enhanced V2 recognizers
+                  recognizers_to_add_v2 = [
+                      ("indian_gstin_enhanced_v2", indian_gstin_enhanced_v2),
+                      ("indian_pan_enhanced_v2", indian_pan_enhanced_v2),
+                      ("indian_aadhaar_enhanced_v2", indian_aadhaar_enhanced_v2),
+                      ("indian_passport_enhanced_v2", indian_passport_enhanced_v2)
+                  ]
+
+                  for name, recognizer in recognizers_to_add_v2:
+                      try:
+                          registry.add_recognizer(recognizer)
+                          print(f"Successfully registered enhanced V2 recognizer: {name}")
+                      except Exception as e:
+                          print(f"Failed to register enhanced V2 recognizer {name}: {e}")
+
+                  print("Enhanced PII V2 recognizers with Indian Tax IDs registration completed")
+                  return True
+
+              except Exception as e:
+                  print(f"Error registering enhanced V2 recognizers: {e}")
+                  return False
+
+          # Initialize services
+          def initialize_services():
+              """Initialize the PII analyzer and anonymizer engines."""
+              global analyzer_engine, anonymizer_engine
+
+              try:
+                  print("Initializing Enhanced PII Service V2.0...")
+
+                  # Initialize analyzer engine
+                  analyzer_engine = AnalyzerEngine()
+
+                  # Initialize anonymizer engine
+                  anonymizer_engine = AnonymizerEngine()
+
+                  # Register enhanced entities
+                  if os.getenv("ENABLE_INDIAN_TAX_IDS", "false").lower() == "true":
+                      register_enhanced_entities_v2()
+
+                  print("Enhanced PII Service V2.0 initialization completed successfully")
+                  return True
+
+              except Exception as e:
+                  print(f"Error initializing Enhanced PII Service V2.0: {e}")
+                  traceback.print_exc()
+                  return False
+
+          # API Key validation
+          async def verify_api_key(credentials: HTTPAuthorizationCredentials = Security(security)):
+              if credentials and credentials.credentials == API_KEY:
+                  return credentials.credentials
+              else:
+                  raise HTTPException(
+                      status_code=status.HTTP_401_UNAUTHORIZED,
+                      detail="Invalid API key",
+                      headers={"WWW-Authenticate": "Bearer"},
+                  )
+
+          # API Endpoints
+          @app.on_event("startup")
+          async def startup_event():
+              """Initialize services on startup."""
+              success = initialize_services()
+              if not success:
+                  raise Exception("Failed to initialize Enhanced PII Service V2.0")
+
+          @app.get("/", response_model=dict)
+          async def root():
+              """Root endpoint with service information."""
+              return {
+                  "message": "Enhanced PII Detection Service V2.0",
+                  "version": "2.0.0",
+                  "features": [
+                      "25+ Entity Types",
+                      "Indian Tax IDs (PAN, GSTIN, Aadhaar, Passport)",
+                      "Presidio + GLiNER Support",
+                      "High-Precision Detection"
+                  ],
+                  "endpoints": {
+                      "health": "/health",
+                      "validate": "/validate",
+                      "docs": "/docs"
+                  }
+              }
+
+          @app.get("/health", response_model=HealthResponse)
+          async def health_check():
+              """Health check endpoint."""
+              uptime = (datetime.now() - start_time).total_seconds()
+
+              return HealthResponse(
+                  status="healthy",
+                  timestamp=datetime.now().isoformat(),
+                  version="2.0.0",
+                  service_name="enhanced-pii-v2",
+                  environment=os.getenv("ENVIRONMENT", "unknown"),
+                  uptime_seconds=uptime,
+                  dependencies={
+                      "presidio": "2.2.355",
+                      "spacy": "3.7.2",
+                      "gliner": "0.2.5",
+                      "indian_tax_ids": os.getenv("ENABLE_INDIAN_TAX_IDS", "false")
+                  }
+              )
+
+          @app.post("/validate", response_model=PIIValidationResponse)
+          async def validate_pii(
+              request: PIIValidationRequest,
+              api_key: str = Security(verify_api_key)
+          ):
+              """Validate text for PII content."""
+              start_time = datetime.now()
+
+              try:
+                  if not analyzer_engine:
+                      raise HTTPException(
+                          status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                          detail="PII analyzer service not available"
+                      )
+
+                  # Analyze text for PII
+                  results = analyzer_engine.analyze(
+                      text=request.text,
+                      language=request.language or "en",
+                      entities=None,  # Analyze all entities
+                      return_decision_process=True
+                  )
+
+                  # Convert results to PIIEntity objects
+                  pii_entities = []
+                  for result in results:
+                      entity = PIIEntity(
+                          entity_type=result.entity_type,
+                          value=request.text[result.start:result.end],
+                          confidence_score=result.score,
+                          start_index=result.start,
+                          end_index=result.end,
+                          detection_method="presidio_pattern"
+                      )
+                      pii_entities.append(entity)
+
+                  # Create anonymized text if PII is found
+                  anonymized_text = None
+                  if results and anonymizer_engine:
+                      anonymized_result = anonymizer_engine.anonymize(
+                          text=request.text,
+                          analyzer_results=results
+                      )
+                      anonymized_text = anonymized_result.text
+
+                  # Calculate processing time
+                  processing_time = (datetime.now() - start_time).total_seconds() * 1000
+
+                  # Create response
+                  response = PIIValidationResponse(
+                      is_pii_present=len(results) > 0,
+                      total_pii_entities=len(results),
+                      pii_entities=pii_entities,
+                      anonymized_text=anonymized_text,
+                      analysis_metadata={
+                          "text_length": len(request.text),
+                          "language": request.language or "en",
+                          "entities_detected": [r.entity_type for r in results],
+                          "average_confidence": sum(r.score for r in results) / len(results) if results else 0.0,
+                          "user_id": request.user_id,
+                          "session_id": request.session_id,
+                          "pod_name": os.getenv("POD_NAME", "unknown"),
+                          "pod_namespace": os.getenv("POD_NAMESPACE", "unknown")
+                      },
+                      processing_time_ms=processing_time
+                  )
+
+                  return response
+
+              except HTTPException:
+                  raise
+              except Exception as e:
+                  processing_time = (datetime.now() - start_time).total_seconds() * 1000
+                  print(f"Error processing PII validation: {e}")
+                  traceback.print_exc()
+
+                  raise HTTPException(
+                      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                      detail=f"Error processing PII validation: {str(e)}"
+                  )
+
+          if __name__ == "__main__":
+              uvicorn.run(
+                  "app:app",
+                  host="0.0.0.0",
+                  port=8000,
+                  reload=False,
+                  workers=1
+              )
+          EOAPP
+
+          echo "🔧 Starting enhanced PII service..."
+          echo "📊 Environment Configuration:"
+          echo "  - Environment: $ENVIRONMENT"
+          echo "  - Pod Name: $POD_NAME"
+          echo "  - Pod Namespace: $POD_NAMESPACE"
+          echo "  - Pod IP: $POD_IP"
+          echo "  - Indian Tax IDs Enabled: $ENABLE_INDIAN_TAX_IDS"
+          echo "  - GLiNER Support Enabled: $ENABLE_Gliner_SUPPORT"
+
+          exec uvicorn app:app --host 0.0.0.0 --port 8000 --workers 1
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 90
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 60
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 6
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pii-enhanced-v2-service
+  namespace: z-grid
+  labels:
+    app: pii-enhanced-v2
+    component: pii-detection
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+    name: http
+  selector:
+    app: pii-enhanced-v2
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: pii-enhanced-v2-ingress
+  namespace: z-grid
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+spec:
+  rules:
+  - host: policy-zgrid.20.242.183.197.nip.io
+    http:
+      paths:
+      - path: /pii-enhanced-v2
+        pathType: Prefix
+        backend:
+          service:
+            name: pii-enhanced-v2-service
+            port:
+              number: 8000

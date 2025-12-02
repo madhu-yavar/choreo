@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: z-grid-monitoring-dashboard
+  namespace: z-grid
+  labels:
+    app: z-grid-monitoring-dashboard
+    component: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: z-grid-monitoring-dashboard
+  template:
+    metadata:
+      labels:
+        app: z-grid-monitoring-dashboard
+        component: monitoring
+    spec:
+      containers:
+      - name: dashboard
+        image: python:3.11-slim
+        ports:
+        - containerPort: 5000
+        env:
+        - name: FLASK_APP
+          value: "app.py"
+        - name: FLASK_ENV
+          value: "production"
+        - name: DATABASE_PATH
+          value: "/app/database/zgrid_monitoring.db"
+        command: ["sh", "-c"]
+        args:
+        - |
+          pip install flask flask-socketio requests psutil kubernetes &&
+          cd /app &&
+          python app.py
+        volumeMounts:
+        - name: database-storage
+          mountPath: /app/database
+        - name: monitoring-config
+          mountPath: /app/config.py
+          subPath: config.py
+        - name: monitoring-app
+          mountPath: /app/app.py
+          subPath: app.py
+        - name: monitoring-database
+          mountPath: /app/database/database.py
+          subPath: database.py
+        resources:
+          requests:
+            cpu: "200m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: database-storage
+        persistentVolumeClaim:
+          claimName: sqlite-pvc
+      - name: monitoring-config
+        configMap:
+          name: z-grid-monitoring-config
+          items:
+          - key: config.py
+            path: config.py
+      - name: monitoring-app
+        configMap:
+          name: z-grid-monitoring-config
+          items:
+          - key: app.py
+            path: app.py
+      - name: monitoring-database
+        configMap:
+          name: z-grid-monitoring-config
+          items:
+          - key: database/database.py
+            path: database.py
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: z-grid-monitoring-dashboard
+  namespace: z-grid
+  labels:
+    app: z-grid-monitoring-dashboard
+    component: monitoring
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 5000
+    protocol: TCP
+  selector:
+    app: z-grid-monitoring-dashboard

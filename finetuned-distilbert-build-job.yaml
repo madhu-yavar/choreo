@@ -1,0 +1,63 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: finetuned-distilbert-build-job
+  namespace: z-grid
+  labels:
+    app: finetuned-distilbert-build
+    job-type: image-build
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: finetuned-distilbert-build
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: kaniko
+        image: gcr.io/kaniko-project/executor:latest
+        args:
+        - --dockerfile=Dockerfile.finetuned-distilbert
+        - --context=dir://workspace
+        - --destination=zgridcontainerregistry.azurecr.io/finetuned-distilbert-jailbreak:latest
+        - --destination=zgridcontainerregistry.azurecr.io/finetuned-distilbert-jailbreak:v1.0.0
+        - --cache=true
+        - --cache-dir=/cache
+        - --verbosity=info
+        - --skip-tls-verify
+        env:
+        - name: DOCKER_CONFIG
+          value: "/kaniko/.docker/"
+        volumeMounts:
+        - name: workspace
+          mountPath: /workspace
+        - name: docker-config
+          mountPath: /kaniko/.docker
+        - name: cache
+          mountPath: /cache
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1000m"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+      volumes:
+      - name: workspace
+        emptyDir: {}
+      - name: docker-config
+        secret:
+          secretName: acr-credentials
+          items:
+          - key: .dockerconfigjson
+            path: config.json
+      - name: cache
+        emptyDir: {}
+      nodeSelector:
+        nodepool: default
+      tolerations:
+      - key: "dedicated"
+        operator: "Exists"
+        effect: "NoSchedule"

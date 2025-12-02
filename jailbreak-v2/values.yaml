@@ -1,0 +1,220 @@
+# Default values for jailbreak-distilbert Helm chart
+# Optimized for production deployment with 97.6% accuracy
+
+# Global settings
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+  storageClass: azurefile-premium
+
+# Image configuration
+image:
+  registry: docker.io
+  repository: python
+  tag: 3.9-slim
+  pullPolicy: Always
+
+# Replica configuration
+replicaCount: 2
+
+# Service configuration
+service:
+  type: LoadBalancer
+  port: 8002
+  metricsPort: 9090
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "false"
+    service.beta.kubernetes.io/azure-load-balancer-tcp-idle-timeout: "30"
+
+# Resource requirements
+resources:
+  requests:
+    memory: "512Mi"
+    cpu: "300m"
+  limits:
+    memory: "1Gi"
+    cpu: "800m"
+
+# Autoscaling
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# Model configuration
+model:
+  name: "distilbert-base-uncased"
+  path: "/app/model"
+  version: "optimized-checkpoint-468"
+  maxSize: "767MB"
+  trainingDataSize: 1039
+  accuracy: "97.6%"
+  f1Score: "90.9%"
+
+# Storage configuration
+storage:
+  size: "2Gi"
+  accessModes:
+    - ReadOnlyMany
+  storageClassName: "azurefile-premium"
+
+# Detection thresholds (optimized from training)
+thresholds:
+  high: 0.85
+  medium: 0.65
+  low: 0.45
+  default: 0.50
+
+# API configuration
+api:
+  keys: "supersecret123,jailvalyaru"
+  timeout: 30
+  maxRequestSize: "1Mi"
+  rateLimit:
+    requests: 100
+    window: "60s"
+
+# Security settings
+security:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+
+# Health check configuration
+health:
+  liveness:
+    initialDelaySeconds: 45
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
+  readiness:
+    initialDelaySeconds: 20
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  startup:
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 12
+
+# Service account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# Pod annotations
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "9090"
+  prometheus.io/path: "/metrics"
+
+# Pod security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+# Container security context
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop:
+    - ALL
+
+# Node selector
+nodeSelector:
+  kubernetes.io/os: linux
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# Ingress configuration (optional)
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: jailbreak-distilbert.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# Monitoring configuration
+monitoring:
+  enabled: true
+  prometheus:
+    enabled: true
+    port: 9090
+    path: "/metrics"
+  serviceMonitor:
+    enabled: false
+    namespace: ""
+    labels: {}
+
+# Model loading configuration
+modelLoading:
+  timeout: "300s"
+  retryCount: 3
+  cacheEnabled: true
+
+# Performance tuning
+performance:
+  workers: 2
+  workerConnections: 1000
+  maxRequests: 1000
+  keepaliveTimeout: 65
+
+# Logging configuration
+logging:
+  level: "INFO"
+  format: "json"
+  accessLog: true
+
+# Environment-specific settings
+environments:
+  development:
+    replicaCount: 1
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "200m"
+      limits:
+        memory: "512Mi"
+        cpu: "400m"
+  staging:
+    replicaCount: 2
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "300m"
+      limits:
+        memory: "1Gi"
+        cpu: "600m"
+  production:
+    replicaCount: 2
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "300m"
+      limits:
+        memory: "1Gi"
+        cpu: "800m"
+
+# Feature flags
+features:
+  prometheusMetrics: true
+  detailedLogging: true
+  modelCaching: true
+  rateLimiting: true
+  requestTracing: false

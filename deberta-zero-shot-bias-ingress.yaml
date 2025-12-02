@@ -1,0 +1,37 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: deberta-zero-shot-bias-ingress
+  namespace: z-grid
+  annotations:
+    nginx.ingress.kubernetes.io/cors-allow-headers: DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,x-api-key
+    nginx.ingress.kubernetes.io/cors-allow-methods: GET, POST, PUT, DELETE, OPTIONS
+    nginx.ingress.kubernetes.io/cors-allow-origin: '*'
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: 10m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"networking.k8s.io/v1","kind":"Ingress","metadata":{"annotations":{"nginx.ingress.kubernetes.io/cors-allow-headers":"DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,x-api-key","nginx.ingress.kubernetes.io/cors-allow-methods":"GET, POST, PUT, DELETE, OPTIONS","nginx.ingress.kubernetes.io/cors-allow-origin":"*","nginx.ingress.kubernetes.io/enable-cors":"true","nginx.ingress.kubernetes.io/proxy-body-size":"10m","nginx.ingress.kubernetes.io/proxy-read-timeout":"300","nginx.ingress.kubernetes.io/proxy-send-timeout":"300","nginx.ingress.kubernetes.io/ssl-redirect":"true"},"name":"deberta-zero-shot-bias-ingress","namespace":"z-grid"},"spec":{"ingressClassName":"nginx","rules":[{"host":"bias-zgrid.20.242.183.197.nip.io","http":{"paths":[{"backend":{"service":{"name":"deberta-zero-shot-bias","port":{"number":8012}}},"path":"/","pathType":"Prefix"}]}}],"tls":[{"hosts":["bias-zgrid.20.242.183.197.nip.io"],"secretName":"zgrid-services-tls"}]}}
+  labels:
+    app: deberta-zero-shot-bias
+    component: bias-detection
+    tier: service
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: bias-zgrid.20.242.183.197.nip.io
+    http:
+      paths:
+      - backend:
+          service:
+            name: deberta-zero-shot-bias
+            port:
+              number: 8012
+        path: /
+        pathType: Prefix
+  tls:
+  - hosts:
+    - bias-zgrid.20.242.183.197.nip.io
+    secretName: zgrid-services-tls

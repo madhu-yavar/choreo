@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: z-grid-monitoring-ip-ingress
+  namespace: z-grid
+  labels:
+    app: z-grid-monitoring-dashboard
+    component: monitoring
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  rules:
+  - host: "20.242.183.197.nip.io"
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: simple-monitoring-dashboard-service
+            port:
+              number: 5000

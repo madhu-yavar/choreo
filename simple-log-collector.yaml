@@ -1,0 +1,35 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: simple-log-collector
+  namespace: z-grid
+spec:
+  template:
+    spec:
+      serviceAccountName: log-collector-sa
+      containers:
+      - name: log-collector
+        image: bitnami/kubectl:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          echo "Starting simple log collection..."
+
+          # Test basic connectivity
+          echo "Testing kubectl connectivity..."
+          kubectl get pods -n z-grid
+
+          # Test collecting logs
+          echo "Testing log collection from bias-deberta-v3..."
+          kubectl logs bias-deberta-v3-fb99f6f9d-k5mf7 -n z-grid --since=1m | head -10
+
+          echo "Log collection test completed"
+        volumeMounts:
+        - name: database-storage
+          mountPath: /app/database
+      restartPolicy: OnFailure
+      volumes:
+      - name: database-storage
+        persistentVolumeClaim:
+          claimName: sqlite-pvc

@@ -1,0 +1,258 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: z-grid-log-collector
+  namespace: z-grid
+  labels:
+    app: z-grid-log-collector
+    component: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: z-grid-log-collector
+  template:
+    metadata:
+      labels:
+        app: z-grid-log-collector
+        component: monitoring
+    spec:
+      containers:
+      - name: log-collector
+        image: python:3.11-slim
+        command: ["sh", "-c"]
+        args:
+        - |
+          # Install kubectl
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          mv kubectl /usr/local/bin/
+
+          # Run the Python log collector
+          python3 -c '''
+          import os
+          import re
+          import sqlite3
+          import subprocess
+          import time
+          import json
+          from datetime import datetime, timedelta
+          import logging
+
+          logging.basicConfig(level=logging.INFO)
+          logger = logging.getLogger(__name__)
+
+          def get_sqlite_connection():
+              """Get SQLite database connection"""
+              try:
+                  db_path = '/app/database/zgrid_monitoring.db'
+                  os.makedirs(os.path.dirname(db_path), exist_ok=True)
+                  return sqlite3.connect(db_path)
+              except Exception as e:
+                  logger.error(f"Database connection error: {e}")
+                  return None
+
+          def init_database():
+              """Initialize database tables"""
+              conn = get_sqlite_connection()
+              if not conn:
+                  return False
+
+              try:
+                  cursor = conn.cursor()
+
+                  # Create request_history table if not exists
+                  cursor.execute('''
+                      CREATE TABLE IF NOT EXISTS request_history (
+                          id INTEGER PRIMARY KEY AUTOINCREMENT,
+                          service_name TEXT NOT NULL,
+                          request_type TEXT NOT NULL,
+                          response_time INTEGER,
+                          status_code INTEGER,
+                          client_ip TEXT,
+                          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                      )
+                  ''')
+
+                  # Create service_metrics table if not exists
+                  cursor.execute('''
+                      CREATE TABLE IF NOT EXISTS service_metrics (
+                          id INTEGER PRIMARY KEY AUTOINCREMENT,
+                          service_name TEXT NOT NULL,
+                          cpu_usage REAL,
+                          memory_usage REAL,
+                          request_count INTEGER,
+                          error_count INTEGER,
+                          avg_response_time REAL,
+                          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                      )
+                  ''')
+
+                  conn.commit()
+                  logger.info("Database initialized successfully")
+                  return True
+              except Exception as e:
+                  logger.error(f"Database initialization error: {e}")
+                  return False
+              finally:
+                  conn.close()
+
+          def parse_access_log(log_line):
+              """Parse access log format: 'IP - - [timestamp] "METHOD path HTTP/1.1" status_code'"""
+              try:
+                  # Regex to match access log format
+                  pattern = r'(\d+\.\d+\.\d+\.\d+).*?\[.*?\]\s+"(\w+)\s+([^\s]+)\s+HTTP[^"]*"\s+(\d+)'
+                  match = re.search(pattern, log_line)
+
+                  if match:
+                      client_ip = match.group(1)
+                      method = match.group(2)
+                      endpoint = match.group(3)
+                      status_code = int(match.group(4))
+
+                      return {
+                          'client_ip': client_ip,
+                          'method': method,
+                          'endpoint': endpoint,
+                          'status_code': status_code,
+                          'response_time': None  # Not available in access logs
+                      }
+              except Exception as e:
+                  logger.debug(f"Failed to parse log line: {e}")
+              return None
+
+          def collect_logs_from_pod(pod_name):
+              """Collect logs from a specific pod"""
+              try:
+                  # Get logs from the last 2 minutes
+                  cmd = ['kubectl', 'logs', '-n', 'z-grid', '--since=2m', pod_name]
+                  result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
+                  if result.returncode != 0:
+                      return []
+
+                  logs = result.stdout.strip().split('\n')
+                  parsed_requests = []
+
+                  for log_line in logs:
+                      parsed = parse_access_log(log_line)
+                      if parsed and (parsed['endpoint'] in ['/validate', '/health', '/api/health']):
+                          parsed['pod_name'] = pod_name
+                          parsed['raw_log'] = log_line
+                          parsed_requests.append(parsed)
+
+                  return parsed_requests
+              except Exception as e:
+                  logger.error(f"Error collecting logs from {pod_name}: {e}")
+                  return []
+
+          def store_requests(requests):
+              """Store parsed requests in database"""
+              if not requests:
+                  return 0
+
+              conn = get_sqlite_connection()
+              if not conn:
+                  return 0
+
+              try:
+                  cursor = conn.cursor()
+                  stored = 0
+
+                  for req in requests:
+                      # Extract service name from pod name
+                      service_name = req['pod_name'].split('-')[0] if '-' in req['pod_name'] else req['pod_name']
+
+                      cursor.execute('''
+                          INSERT INTO request_history
+                          (service_name, request_type, response_time, status_code, client_ip)
+                          VALUES (?, ?, ?, ?, ?)
+                      ''', (
+                          service_name,
+                          f"{req['method']} {req['endpoint']}",
+                          req['response_time'],
+                          req['status_code'],
+                          req['client_ip']
+                      ))
+                      stored += 1
+
+                  conn.commit()
+                  return stored
+              except Exception as e:
+                  logger.error(f"Error storing requests: {e}")
+                  return 0
+              finally:
+                  conn.close()
+
+          def main():
+              logger.info("Starting Z-Grid Log Collector...")
+
+              # Initialize database
+              if not init_database():
+                  logger.error("Failed to initialize database. Exiting.")
+                  return
+
+              # Get list of pods to monitor (exclude monitoring pods)
+              target_pods = ['bias-deberta-v3', 'gateway-v2', 'tox-service']
+
+              while True:
+                  try:
+                      total_requests = 0
+                      total_stored = 0
+
+                      # Get all pods
+                      cmd = ['kubectl', 'get', 'pods', '-n', 'z-grid', '-o', 'json']
+                      result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
+                      if result.returncode == 0:
+                          pods_data = json.loads(result.stdout)
+
+                          for pod in pods_data.get('items', []):
+                              pod_name = pod['metadata']['name']
+
+                              # Skip monitoring and log collector pods
+                              if any(skip in pod_name for skip in ['monitoring', 'dashboard', 'sqlite-database', 'log-collector']):
+                                  continue
+
+                              # Only collect from target pods
+                              if not any(target in pod_name for target in target_pods):
+                                  continue
+
+                              # Collect logs from this pod
+                              requests = collect_logs_from_pod(pod_name)
+                              total_requests += len(requests)
+
+                              # Store in database
+                              stored = store_requests(requests)
+                              total_stored += stored
+
+                      if total_requests > 0:
+                          logger.info(f"Collected {total_requests} requests, stored {total_stored} in database")
+
+                  except Exception as e:
+                      logger.error(f"Error in collection cycle: {e}")
+
+                  # Wait for 60 seconds before next collection
+                  time.sleep(60)
+
+          if __name__ == "__main__":
+              main()
+          '''
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "64Mi"
+          limits:
+            cpu: "200m"
+            memory: "256Mi"
+        volumeMounts:
+        - name: database-storage
+          mountPath: /app/database
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+      volumes:
+      - name: database-storage
+        persistentVolumeClaim:
+          claimName: sqlite-pvc
+      restartPolicy: Always

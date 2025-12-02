@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gibberish-service-optimized
+  namespace: z-grid
+  labels:
+    app: gibberish-service-optimized
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gibberish-service-optimized
+  template:
+    metadata:
+      labels:
+        app: gibberish-service-optimized
+    spec:
+      containers:
+      - name: gibberish-service-optimized
+        # Pre-built image with PyTorch already installed
+        image: inetuned-gibberish:latest
+        # For production, use: your-registry/inetuned-gibberish:latest
+        imagePullPolicy: Always
+
+        env:
+        - name: MODEL_PATH
+          value: "/model_volume/inetuned_gibbrish_model"
+        - name: FLASK_RUN_PORT
+          value: "8007"
+
+        ports:
+        - containerPort: 8007
+          name: http
+          protocol: TCP
+
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+
+        volumeMounts:
+        - name: model-volume
+          mountPath: /model_volume
+          readOnly: true
+
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8007
+          initialDelaySeconds: 90
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8007
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+      volumes:
+      - name: model-volume
+        persistentVolumeClaim:
+          claimName: gibberish-model-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gibberish-service-optimized
+  namespace: z-grid
+  labels:
+    app: gibberish-service-optimized
+spec:
+  selector:
+    app: gibberish-service-optimized
+  ports:
+  - name: http
+    port: 8007
+    targetPort: 8007
+    protocol: TCP
+  type: ClusterIP

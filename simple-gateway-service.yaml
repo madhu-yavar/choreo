@@ -1,0 +1,217 @@
+---
+# Simple Gateway Service Deployment
+# External-facing content moderation gateway with parallel testing
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: simple-gateway-service
+  namespace: z-grid
+  labels:
+    app: simple-gateway
+    service-type: gateway
+    version: v1.0.0
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: simple-gateway
+  template:
+    metadata:
+      labels:
+        app: simple-gateway
+        service-type: gateway
+        version: v1.0.0
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8010"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: simple-gateway
+        image: mcr.microsoft.com/azure-cli:latest  # Placeholder - replace with actual image
+        imagePullPolicy: Always
+        command: ["/bin/bash"]
+        args:
+          - -c
+          - |
+            echo "Installing Python dependencies..."
+            apt-get update && apt-get install -y python3 python3-pip
+            pip3 install fastapi uvicorn httpx python-dotenv pydantic
+            echo "Starting Simple Gateway Service..."
+            python3 simple_gateway_service.py
+        ports:
+        - containerPort: 8010
+          name: http
+          protocol: TCP
+        env:
+        - name: SIMPLE_GATEWAY_MASTER_KEYS
+          value: "simple-gateway-master-key,zgrid-gateway-2024"
+        - name: PII_SERVICE_URL
+          value: "http://pii-service-yavar.z-grid:8000/validate"
+        - name: TOXICITY_SERVICE_URL
+          value: "http://tox-service-yavar.z-grid:8001/validate"
+        - name: JAILBREAK_SERVICE_URL
+          value: "http://jail-service-yavar.z-grid:8002/validate"
+        - name: BAN_SERVICE_URL
+          value: "http://ban-service-yavar.z-grid:8004/validate"
+        - name: SECRETS_SERVICE_URL
+          value: "http://secrets-service-yavar.z-grid:8005/validate"
+        - name: FORMAT_SERVICE_URL
+          value: "http://format-service-yavar.z-grid:8006/validate"
+        - name: GIBBERISH_SERVICE_URL
+          value: "http://gibberish-service-yavar.z-grid:8007/validate"
+        - name: PII_SERVICE_KEY
+          value: "supersecret123"
+        - name: TOXICITY_SERVICE_KEY
+          value: "supersecret123"
+        - name: JAILBREAK_SERVICE_KEY
+          value: "supersecret123"
+        - name: BAN_SERVICE_KEY
+          value: "supersecret123"
+        - name: SECRETS_SERVICE_KEY
+          value: "supersecret123"
+        - name: FORMAT_SERVICE_KEY
+          value: "supersecret123"
+        - name: GIBBERISH_SERVICE_KEY
+          value: "supersecret123"
+        - name: CORS_ALLOWED_ORIGINS
+          value: "https://zgrid-feature-flow.lovable.app,https://*.lovable.app,http://localhost:3000,http://localhost:5173"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8010
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8010
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: service-code
+          mountPath: /app
+          readOnly: true
+      volumes:
+      - name: service-code
+        configMap:
+          name: simple-gateway-code
+      restartPolicy: Always
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 2000
+---
+# Simple Gateway Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: simple-gateway-service
+  namespace: z-grid
+  labels:
+    app: simple-gateway
+    service-type: gateway
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "false"
+    service.beta.kubernetes.io/azure-load-balancer-tcp-idle-timeout: "4"
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8010"
+    prometheus.io/path: "/metrics"
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 8010
+    targetPort: 8010
+    protocol: TCP
+    name: http
+  selector:
+    app: simple-gateway
+---
+# Horizontal Pod Autoscaler
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: simple-gateway-hpa
+  namespace: z-grid
+  labels:
+    app: simple-gateway
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: simple-gateway-service
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+---
+# Pod Disruption Budget
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: simple-gateway-pdb
+  namespace: z-grid
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: simple-gateway
+---
+# Service Monitor for Prometheus
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: simple-gateway-monitor
+  namespace: z-grid
+  labels:
+    app: simple-gateway
+    monitoring: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: simple-gateway
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 30s
+    scrapeTimeout: 10s

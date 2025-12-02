@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: z-grid-monitoring-dashboard
+  namespace: z-grid
+  labels:
+    app: z-grid-monitoring-dashboard
+    component: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: z-grid-monitoring-dashboard
+  template:
+    metadata:
+      labels:
+        app: z-grid-monitoring-dashboard
+        component: monitoring
+    spec:
+      initContainers:
+      - name: copy-monitoring-code
+        image: python:3.11-slim
+        command: ['sh', '-c']
+        args:
+        - |
+          apt-get update && apt-get install -y git
+          cd /tmp
+          # Clone the repo to get the monitoring code
+          git clone https://github.com/Yavar-ai/z_grid.git /tmp/monitoring
+          cp -r /tmp/monitoring/z_grid_monitoring/* /app/
+          chmod +x /app
+        volumeMounts:
+        - name: monitoring-code
+          mountPath: /app
+      containers:
+      - name: monitoring-dashboard
+        image: python:3.11-slim
+        command: ['sh', '-c']
+        args:
+        - |
+          cd /app
+          apt-get update && apt-get install -y gcc g++ git
+          pip install --no-cache-dir -r requirements.txt
+          python app.py
+        ports:
+        - containerPort: 5000
+          name: http
+        env:
+        - name: NAMESPACE
+          value: "z-grid"
+        - name: FLASK_ENV
+          value: "production"
+        - name: PORT
+          value: "5000"
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "200m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 5000
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 5000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        volumeMounts:
+        - name: monitoring-code
+          mountPath: /app
+          readOnly: false
+        - name: monitoring-db
+          mountPath: /app/database
+          readOnly: false
+      volumes:
+      - name: monitoring-code
+        emptyDir: {}
+      - name: monitoring-db
+        emptyDir: {}
+      restartPolicy: Always
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: z-grid-monitoring-dashboard-service
+  namespace: z-grid
+  labels:
+    app: z-grid-monitoring-dashboard
+    component: monitoring
+spec:
+  selector:
+    app: z-grid-monitoring-dashboard
+  ports:
+  - name: http
+    port: 5000
+    targetPort: 5000
+    protocol: TCP
+  type: ClusterIP

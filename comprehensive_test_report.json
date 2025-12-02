@@ -1,0 +1,185 @@
+{
+  "passed": 9,
+  "failed": 2,
+  "total": 11,
+  "results": [
+    {
+      "test": "ML Model Loading",
+      "passed": false,
+      "status": "\u274c FAIL",
+      "details": {
+        "model_status": {
+          "ml_model_loaded": false,
+          "model_type": null,
+          "pattern_detection_available": true,
+          "context_awareness": true
+        },
+        "model_type": null
+      }
+    },
+    {
+      "test": "High General Toxicity Detection",
+      "passed": true,
+      "status": "\u2705 PASS",
+      "details": {
+        "scores": {
+          "toxicity": 0.8,
+          "threat": 0.15,
+          "sexual_explicit": 0.25,
+          "insult": 0.35
+        },
+        "thresholds_used": [
+          0.7,
+          0.2,
+          0.3,
+          0.4
+        ],
+        "breached_categories": [
+          "toxicity"
+        ]
+      }
+    },
+    {
+      "test": "High Threat with Low General Toxicity",
+      "passed": true,
+      "status": "\u2705 PASS",
+      "details": {
+        "scores": {
+          "toxicity": 0.5,
+          "threat": 0.25,
+          "sexual_explicit": 0.1,
+          "insult": 0.2
+        },
+        "breached_categories": [
+          "threat"
+        ],
+        "general_toxicity_masked": true
+      }
+    },
+    {
+      "test": "Negligible Scores Filtered",
+      "passed": true,
+      "status": "\u2705 PASS",
+      "details": {
+        "scores": {
+          "toxicity": 0.03,
+          "threat": 0.04,
+          "sexual_explicit": 0.02
+        },
+        "breached": false,
+        "min_confidence_threshold": 0.05
+      }
+    },
+    {
+      "test": "Scunthorpe Not Flagged as Profanity",
+      "passed": true,
+      "status": "\u2705 PASS",
+      "details": {
+        "text": "I'm traveling to Scunthorpe next week for business.",
+        "profanity_detected": [],
+        "in_whitelist": true
+      }
+    },
+    {
+      "test": "Essex Not Flagged as Profanity",
+      "passed": true,
+      "status": "\u2705 PASS",
+      "details": {
+        "text": "The county of Essex is known for its beautiful countryside.",
+        "profanity_detected": [],
+        "in_whitelist": true
+      }
+    },
+    {
+      "test": "Actual Profanity Still Detected",
+      "passed": false,
+      "status": "\u274c FAIL",
+      "details": {
+        "text": "This is absolutely fucking ridiculous",
+        "profanity_detected": [
+          {
+            "token": "fuck",
+            "start": 19,
+            "end": 23,
+            "type": "disguised_profanity",
+            "severity": "high",
+            "geographic_check": "passed"
+          },
+          {
+            "token": "fuck",
+            "start": 19,
+            "end": 23,
+            "type": "disguised_profanity",
+            "severity": "high",
+            "geographic_check": "passed"
+          },
+          {
+            "token": "fuck",
+            "start": 19,
+            "end": 23,
+            "type": "disguised_profanity",
+            "severity": "high",
+            "geographic_check": "passed"
+          }
+        ]
+      }
+    },
+    {
+      "test": "Threat Pattern Detection",
+      "passed": true,
+      "status": "\u2705 PASS",
+      "details": {
+        "text": "I'm going to kill you and your family",
+        "threat_score": 0.95,
+        "all_scores": {
+          "toxicity": 0.0,
+          "severe_toxicity": 0.0,
+          "obscene": 0.0,
+          "threat": 0.95,
+          "insult": 0.0,
+          "identity_attack": 0.0,
+          "sexual_explicit": 0.0,
+          "pattern_toxicity": 0.0,
+          "sarcastic_insult": 0.0,
+          "passive_aggressive": 0.0
+        }
+      }
+    },
+    {
+      "test": "Partial Word Protection",
+      "passed": true,
+      "status": "\u2705 PASS",
+      "details": {
+        "text": "The music was therapeutic",
+        "threat_score": 0.0,
+        "false_positive_prevented": true
+      }
+    },
+    {
+      "test": "Low Confidence Scores Filtered",
+      "passed": true,
+      "status": "\u2705 PASS",
+      "details": {
+        "scores": {
+          "toxicity": 0.02,
+          "threat": 0.03,
+          "insult": 0.04,
+          "sexual_explicit": 0.01
+        },
+        "breached": false,
+        "min_confidence": 0.05,
+        "reason": "All scores below minimum confidence threshold"
+      }
+    },
+    {
+      "test": "Advanced Jailbreak Cases (10/11)",
+      "passed": true,
+      "status": "\u2705 PASS",
+      "details": {
+        "success_rate": 0.9090909090909091,
+        "passed_cases": 10,
+        "total_cases": 11
+      }
+    }
+  ]
+}

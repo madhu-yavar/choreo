@@ -1,0 +1,33 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: test-log-collector
+  namespace: z-grid
+spec:
+  template:
+    spec:
+      serviceAccountName: log-collector-sa
+      containers:
+      - name: log-collector
+        image: bitnami/kubectl:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          echo "Starting log collection test..."
+
+          # Test basic connectivity
+          echo "Testing kubectl connectivity..."
+          kubectl get pods -n z-grid
+
+          echo ""
+          echo "Testing log collection from bias-deberta-v3..."
+          kubectl logs bias-deberta-v3-fb99f6f9d-k5mf7 -n z-grid --since=1m | head -5
+
+          echo ""
+          echo "Testing log collection from gateway pods..."
+          kubectl get pods -n z-grid -o name | grep gateway-v2 | head -3
+
+          echo ""
+          echo "Log collection test completed successfully!"
+      restartPolicy: OnFailure

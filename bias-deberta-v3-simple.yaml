@@ -1,0 +1,239 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bias-deberta-v3
+  namespace: z-grid
+  labels:
+    app: bias-deberta-v3
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bias-deberta-v3
+  template:
+    metadata:
+      labels:
+        app: bias-deberta-v3
+    spec:
+      containers:
+      - name: bias-deberta-v3
+        image: python:3.11-slim
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          echo "🚀 Setting up DeBERTa v3 Bias Service"
+
+          # Install system dependencies
+          apt-get update && apt-get install -y \
+            curl \
+            git \
+            && rm -rf /var/lib/apt/lists/*
+
+          # Install Python dependencies
+          pip install --no-cache-dir \
+            "torch>=2.9.0" \
+            "transformers>=4.57.0" \
+            "accelerate>=1.11.0" \
+            "flask>=3.1.0" \
+            "aiohttp>=3.13.0" \
+            "numpy>=1.24.0" \
+            "protobuf>=4.25.0" \
+            "requests>=2.31.0" \
+            "psutil>=5.9.0"
+
+          # Create the enhanced bias service
+          cat > /app/app.py << 'EOF'
+          #!/usr/bin/env python3
+          """
+          Enhanced Bias Detection Service with Zero-Shot ML
+          Using DeBERTa-v3-large for Natural Language Inference
+          """
+
+          import os
+          import json
+          import time
+          from datetime import datetime
+          import requests
+          from flask import Flask, request, jsonify
+          from transformers import pipeline
+          import torch
+
+          app = Flask(__name__)
+
+          # Configuration
+          BIAS_API_KEYS = os.getenv('BIAS_API_KEYS', 'supersecret123,biasyavar,enhancedbias123,zgridbias2025').split(',')
+          DEBERTA_MODEL_ID = os.getenv('DEBERTA_MODEL_ID', 'MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli')
+          DEVICE = os.getenv('DEVICE', 'cpu')
+
+          # Bias categories for zero-shot classification
+          BIAS_CATEGORIES = [
+              "gender bias",
+              "racial bias",
+              "age bias",
+              "religious bias",
+              "disability bias",
+              "socioeconomic bias"
+          ]
+
+          # Global variables
+          zero_shot_classifier = None
+
+          def load_zero_shot_model():
+              """Load the zero-shot classification model"""
+              global zero_shot_classifier
+              try:
+                  print(f"🤖 Loading zero-shot model: {DEBERTA_MODEL_ID}")
+                  zero_shot_classifier = pipeline(
+                      "zero-shot-classification",
+                      model=DEBERTA_MODEL_ID,
+                      device=0 if DEVICE == 'cuda' else -1
+                  )
+                  print("✅ Zero-shot model loaded successfully")
+                  return True
+              except Exception as e:
+                  print(f"❌ Error loading zero-shot model: {str(e)}")
+                  return False
+
+          def detect_zero_shot_bias(text: str) -> list:
+              """Detect bias using zero-shot classification"""
+              if not zero_shot_classifier:
+                  return []
+
+              try:
+                  result = zero_shot_classifier(
+                      text,
+                      BIAS_CATEGORIES,
+                      multi_label=True
+                  )
+
+                  findings = []
+                  for category, score in zip(result['labels'], result['scores']):
+                      if score > 0.5:  # Confidence threshold
+                          findings.append({
+                              'category': category,
+                              'confidence': score,
+                              'method': 'zero_shot_classification',
+                              'hypothesis': f"This text contains {category}"
+                          })
+
+                  return findings
+              except Exception as e:
+                  print(f"❌ Error in zero-shot classification: {str(e)}")
+                  return []
+
+          def validate_api_key():
+              """Validate API key"""
+              api_key = request.headers.get('X-API-Key')
+              if not api_key:
+                  return False
+              return api_key in BIAS_API_KEYS
+
+          @app.route('/health', methods=['GET'])
+          def health_check():
+              """Health check endpoint"""
+              return jsonify({
+                  'ok': True,
+                  'service': 'Bias Detection Service - DeBERTa v3.2.0',
+                  'version': 'v2.0',
+                  'zero_shot_model': DEBERTA_MODEL_ID,
+                  'deberta_available': zero_shot_classifier is not None,
+                  'bias_categories': BIAS_CATEGORIES,
+                  'timestamp': datetime.now().isoformat()
+              })
+
+          @app.route('/validate', methods=['POST'])
+          def validate_text():
+              """Main bias validation endpoint"""
+              if not validate_api_key():
+                  return jsonify({'error': 'Invalid API key'}), 401
+
+              data = request.get_json()
+              if not data or 'text' not in data:
+                  return jsonify({'error': 'Text is required'}), 400
+
+              text = data['text']
+              context = data.get('context', 'Azure K8 deployment test')
+              analysis_type = data.get('analysis_type', 'comprehensive')
+
+              # Zero-shot classification
+              findings = detect_zero_shot_bias(text)
+
+              # Calculate overall bias score
+              bias_score = 0.0
+              if findings:
+                  bias_score = max(finding['confidence'] for finding in findings)
+
+              violated = bias_score > 0.7
+
+              return jsonify({
+                  'text': text,
+                  'context': context,
+                  'bias_score': bias_score,
+                  'violated': violated,
+                  'findings': findings,
+                  'methods_used': ['zero_shot_classification'] if findings else [],
+                  'analysis_summary': {
+                      'zero_shot_matches': len(findings),
+                      'total_findings': len(findings)
+                  },
+                  'timestamp': datetime.now().isoformat()
+              })
+
+          if __name__ == '__main__':
+              print("🚀 Starting Bias Detection Service - DeBERTa v3.2.0")
+              print(f"📅 Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+              print(f"🤖 Model: {DEBERTA_MODEL_ID}")
+              print(f"🔧 Device: {DEVICE}")
+              print(f"📊 Bias Categories: {', '.join(BIAS_CATEGORIES)}")
+
+              # Load model
+              if load_zero_shot_model():
+                  print("✅ Service ready!")
+                  app.run(host='0.0.0.0', port=8012, debug=False)
+              else:
+                  print("❌ Failed to load model. Service cannot start.")
+                  exit(1)
+          EOF
+
+          echo "✅ Setup completed successfully"
+          mkdir -p /app
+          cd /app
+          exec python app.py
+        ports:
+        - containerPort: 8012
+          name: http
+          protocol: TCP
+        env:
+        - name: BIAS_API_KEYS
+          value: "supersecret123,biasyavar,enhancedbias123,zgridbias2025"
+        - name: DEBERTA_MODEL_ID
+          value: "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli"
+        - name: DEVICE
+          value: "cpu"
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "2Gi"
+          limits:
+            cpu: "2000m"
+            memory: "4Gi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8012
+          initialDelaySeconds: 120
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8012
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
